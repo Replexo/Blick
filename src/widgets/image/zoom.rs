@@ -155,11 +155,15 @@ impl imp::LpImage {
         (img_x, img_y): (f64, f64),
         zoom: f64,
     ) -> (f64, f64) {
+        let (overscroll_x, overscroll_y) = self.overscroll_size_for(zoom);
         let zoom = self.applicable_zoom_for(zoom);
         let (left, top, _, _) = self.fit_insets.get();
 
         // Transform image coordiantes to view coordinates
-        let (img_x, img_y) = (img_x * zoom + left, img_y * zoom + top);
+        let (img_x, img_y) = (
+            img_x * zoom + left + overscroll_x,
+            img_y * zoom + top + overscroll_y,
+        );
 
         let h_adj = f64::max(0., img_x - cur_x);
         let v_adj = f64::max(0., img_y - cur_y);
@@ -452,6 +456,21 @@ impl LpImage {
             self.notify_zoom();
             self.queue_draw();
         }
+    }
+
+    /// Lets the zoomed in image scroll past its edges, see `overscroll`
+    pub fn set_overscroll(&self, overscroll: bool) {
+        let imp = self.imp();
+        if imp.overscroll.replace(overscroll) != overscroll {
+            imp.configure_adjustments();
+            self.queue_draw();
+        }
+    }
+
+    /// Space at the edges that other widgets cover, as left, top, right and
+    /// bottom
+    pub fn fit_insets(&self) -> (f64, f64, f64, f64) {
+        self.imp().fit_insets.get()
     }
 
     /// Zoom level at which the image fits between the insets

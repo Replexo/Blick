@@ -91,6 +91,16 @@ impl Color {
         Self { r, g, b }
     }
 
+    /// Black or white, whichever reads better on this colour
+    fn contrast(&self) -> Self {
+        let luminance = 0.299 * self.r as f64 + 0.587 * self.g as f64 + 0.114 * self.b as f64;
+        if luminance > 150. {
+            Self::rgb(0, 0, 0)
+        } else {
+            Self::rgb(255, 255, 255)
+        }
+    }
+
     fn set_source(&self, cr: &cairo::Context, alpha: f64) {
         cr.set_source_rgba(
             self.r as f64 / 255.,
@@ -108,7 +118,7 @@ impl Default for Color {
 }
 
 /// Opacity of the highlighter
-const HIGHLIGHTER_ALPHA: f64 = 0.4;
+pub const HIGHLIGHTER_ALPHA: f64 = 0.4;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
@@ -153,7 +163,8 @@ pub struct Shape {
     pub size: f64,
     /// Maps shape coordinates to original image coordinates
     pub matrix: cairo::Matrix,
-    /// Rectangles and ellipses are filled instead of outlined
+    /// Rectangles and ellipses are filled instead of outlined, and text
+    /// gets a box behind it
     pub filled: bool,
     /// Font of text
     pub font: Font,
@@ -183,11 +194,16 @@ impl Shape {
             | Kind::Arrow { from, to } => vec![*from, *to],
             Kind::Text { position, text } => {
                 let (width, height) = text_size(text, self.size, self.font);
+                let pad = if self.filled {
+                    text_background_padding(self.size)
+                } else {
+                    0.
+                };
                 return (
-                    position.0,
-                    position.1,
-                    position.0 + width,
-                    position.1 + height,
+                    position.0 - pad,
+                    position.1 - pad,
+                    position.0 + width + pad,
+                    position.1 + height + pad,
                 );
             }
         };
@@ -536,7 +552,15 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape) -> Result<(), cairo::Error> {
             }
         }
         Kind::Text { position, text } => {
-            shape.color.set_source(cr, 1.);
+            let mut color = shape.color;
+            if shape.filled {
+                let (x0, y0, x1, y1) = shape.bounds();
+                rounded_rectangle(cr, (x0, y0, x1, y1), text_background_padding(shape.size));
+                color.set_source(cr, 1.);
+                cr.fill()?;
+                color = color.contrast();
+            }
+            color.set_source(cr, 1.);
             let layout = pangocairo::functions::create_layout(cr);
             setup_text_layout(&layout, text, shape.size, shape.font);
             cr.move_to(position.0, position.1);
@@ -545,6 +569,22 @@ fn draw_shape(cr: &cairo::Context, shape: &Shape) -> Result<(), cairo::Error> {
     }
 
     cr.restore()
+}
+
+/// Space between text and the edge of its background box
+fn text_background_padding(size: f64) -> f64 {
+    size * 0.3
+}
+
+fn rounded_rectangle(cr: &cairo::Context, (x0, y0, x1, y1): (f64, f64, f64, f64), radius: f64) {
+    let radius = radius.min((x1 - x0) / 2.).min((y1 - y0) / 2.).max(0.);
+    let quarter = std::f64::consts::FRAC_PI_2;
+    cr.new_sub_path();
+    cr.arc(x1 - radius, y0 + radius, radius, -quarter, 0.);
+    cr.arc(x1 - radius, y1 - radius, radius, 0., quarter);
+    cr.arc(x0 + radius, y1 - radius, radius, quarter, 2. * quarter);
+    cr.arc(x0 + radius, y0 + radius, radius, 2. * quarter, 3. * quarter);
+    cr.close_path();
 }
 
 /// Matrix from original image coordinates to coordinates after

@@ -28,11 +28,143 @@ use super::LpImage;
 use super::edit::LpEditCrop;
 use crate::deps::*;
 use crate::editing::adjust::{Adjustments, Property};
+use crate::editing::geometry::{self, Geometry};
+
+/// Slider whose changes in a row form one undo step
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Slider {
+    Adjust(Property),
+    Geometry(geometry::Property),
+}
 use crate::editing::markup::Shape;
 use crate::editing::render::PixelEdits;
 use crate::util::ErrorType;
 use crate::util::gettext::*;
 use crate::util::root::ParentWindow;
+
+/// Path of the temporary file used while replacing `path`
+///
+/// `n` is 0 for `name.tmp.ext`, otherwise `name.tmpN.ext`
+fn tmp_path(path: &std::path::Path, n: u32) -> Option<std::path::PathBuf> {
+    let mut name = path.file_stem()?.to_os_string();
+    name.push(".tmp");
+    if n > 0 {
+        name.push(n.to_string());
+    }
+    if let Some(ext) = path.extension() {
+        name.push(".");
+        name.push(ext);
+    }
+    Some(path.with_file_name(name))
+}
+
+/// Keeps [`imp::LpEditWindow::begin_save`] marked as running while it lives
+struct SaveGuard<'a>(&'a Cell<bool>);
+
+impl Drop for SaveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.set(false);
+    }
+}
+
+/// Whether `path` is inside the document portal's FUSE mount
+fn is_document_portal_path(path: &std::path::Path) -> bool {
+    use std::ffi::OsStr;
+    use std::path::Component;
+
+    let mut components = path.components();
+    components.next() == Some(Component::RootDir)
+        && components.next() == Some(Component::Normal(OsStr::new("run")))
+        && components.next() == Some(Component::Normal(OsStr::new("user")))
+        && matches!(components.next(), Some(Component::Normal(_)))
+        && components.next() == Some(Component::Normal(OsStr::new("doc")))
+}
+
+/// File name of `path` for messages
+fn display_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Error message without the file paths GIO puts into them
+fn path_free_message(message: &str, paths: &[&std::path::Path]) -> String {
+    let mut message = message.to_owned();
+    for path in paths {
+        message = message.replace(path.to_string_lossy().as_ref(), &display_name(path));
+    }
+    // The reason is last, after the part naming the files
+    message
+        .rsplit_once(": ")
+        .map_or(message.as_str(), |(_, reason)| reason)
+        .to_owned()
+}
+
+/// Writes `data` to a new temporary file next to `original`
+///
+/// The file is created exclusively with private permissions, so existing files and
+/// symlinks are never touched, and synced to disk. Afterwards it gets the metadata
+/// (permissions, owner, …) of `original`, which has to be a resolved path and not a
+/// symlink. Meant to run in a blocking thread.
+fn write_tmp_file(original: &std::path::Path, data: &[u8]) -> std::io::Result<std::path::PathBuf> {
+    use std::io::Write;
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+    for n in 0..100 {
+        let tmp = tmp_path(original, n).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
+        })?;
+
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&tmp)
+        {
+            Ok(file) => file,
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        };
+
+        // Everything after creating is done on the handle, which stays writable even if
+        // the original is read-only
+        let result = file
+            .write_all(data)
+            .and_then(|()| file.sync_all())
+            .and_then(|()| {
+                let copied = gio::File::for_path(original).copy_attributes(
+                    &gio::File::for_path(&tmp),
+                    gio::FileCopyFlags::ALL_METADATA,
+                    gio::Cancellable::NONE,
+                );
+                if let Err(err) = copied {
+                    tracing::warn!("Failed to copy file attributes: {err}");
+                    // At least keep the permissions
+                    if let Ok(metadata) = std::fs::metadata(original) {
+                        file.set_permissions(std::fs::Permissions::from_mode(
+                            metadata.permissions().mode() & 0o7777,
+                        ))?;
+                    }
+                }
+                // The copied modification time belongs to the old content
+                file.set_modified(std::time::SystemTime::now())
+            });
+        drop(file);
+
+        return match result {
+            Ok(()) => Ok(tmp),
+            Err(err) => {
+                let _ = std::fs::remove_file(&tmp);
+                Err(err)
+            }
+        };
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        "no free temporary file name",
+    ))
+}
 
 mod imp {
     use super::*;
@@ -71,6 +203,7 @@ mod imp {
         pub(super) can_trash: Cell<bool>,
 
         pub(super) operations: RefCell<Option<Arc<Operations>>>,
+        pub(super) geometry: Cell<Geometry>,
         pub(super) adjustments: Cell<Adjustments>,
         pub(super) markup: RefCell<Arc<Vec<Shape>>>,
         pub(super) resize: Cell<Option<f64>>,
@@ -80,10 +213,12 @@ mod imp {
         /// States undone, for redo
         pub(super) future: RefCell<Vec<EditState>>,
         /// Slider whose changes are merged into the last undo step
-        pub(super) coalesce: Cell<Option<Property>>,
+        pub(super) coalesce: Cell<Option<Slider>>,
         /// Redo steps dropped by the last change, for `discard_last_change`
         pub(super) dropped_future: RefCell<Vec<EditState>>,
         save_cancellable: RefCell<Option<gio::Cancellable>>,
+        /// A save is running, further saves and closing are ignored
+        pub(super) save_in_progress: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -119,6 +254,19 @@ mod imp {
 
             klass.install_action("edit.cancel", None, move |obj, _, _| {
                 obj.imp().cancel();
+            });
+
+            // Escape closes an open pill (aspect ratios, markup options or
+            // colours, colour picking) before it closes the editor
+            klass.install_action("edit.escape", None, move |obj, _, _| {
+                let imp = obj.imp();
+                if !imp
+                    .edit_crop
+                    .get()
+                    .is_some_and(|crop| crop.close_transient())
+                {
+                    imp.cancel();
+                }
             });
         }
 
@@ -175,7 +323,7 @@ mod imp {
                 async move {
                     let can_trash = obj.original_image().can_trash().await;
                     obj.imp().can_trash.replace(can_trash);
-                    obj.action_set_enabled("edit.save-overwrite", can_trash);
+                    obj.imp().update_save_state(false);
                 }
             ));
 
@@ -218,7 +366,7 @@ mod imp {
                     gdk::Key::Escape,
                     gdk::ModifierType::NO_MODIFIER_MASK,
                 )),
-                Some(gtk::NamedAction::new("edit.cancel")),
+                Some(gtk::NamedAction::new("edit.escape")),
             ));
 
             // Ctrl + and Ctrl − zoom, Ctrl 0 goes back to best fit
@@ -330,6 +478,11 @@ mod imp {
     impl LpEditWindow {
         /// Close editing view
         fn cancel(&self) {
+            // Closing while saving could start a second save
+            if self.save_in_progress.get() {
+                return;
+            }
+
             let obj = self.obj().to_owned();
 
             if let Some(cancellable) = obj.imp().save_cancellable.replace(None) {
@@ -343,9 +496,22 @@ mod imp {
             });
         }
 
+        /// Marks a save as running until the guard is dropped
+        pub(super) fn begin_save(&self) -> Option<SaveGuard<'_>> {
+            if self.save_in_progress.replace(true) {
+                None
+            } else {
+                Some(SaveGuard(&self.save_in_progress))
+            }
+        }
+
         pub(super) async fn save_copy(&self) {
             let obj = self.obj();
             self.save.popdown();
+
+            let Some(_guard) = self.begin_save() else {
+                return;
+            };
 
             if let Some(current_file) = obj.original_image().file() {
                 let cancellable = gio::Cancellable::new();
@@ -421,96 +587,175 @@ mod imp {
             let obj = self.obj();
             self.save.popdown();
 
-            if let Some(original_file) = obj.original_image().file()
-                && let Some(current_path) = original_file.path()
-                && let Some(mut file_stem) = current_path.file_stem().map(|x| x.to_os_string())
+            let Some(_guard) = self.begin_save() else {
+                return Err(());
+            };
+
+            let Some(opened_file) = obj.original_image().file() else {
+                self.show_save_error("The image has no file that could be replaced.");
+                return Err(());
+            };
+            let Some(opened_path) = opened_file.path() else {
+                self.show_save_error("Only local files can be replaced.");
+                return Err(());
+            };
+            // Follow symlinks, the real file is replaced and not the link
+            let current_path = match std::fs::canonicalize(&opened_path) {
+                Ok(path) => path,
+                Err(err) => {
+                    self.show_save_error(&format!("Failed to resolve the image file: {err}"));
+                    return Err(());
+                }
+            };
+            let original_file = gio::File::for_path(&current_path);
+            let name = super::display_name(&current_path);
+
+            let cancellable = gio::Cancellable::new();
+            if let Some(old_cancellable) = self.save_cancellable.replace(Some(cancellable.clone()))
             {
-                let mut tmp_path = current_path.clone();
-                file_stem.push(".tmp");
-                if let Some(ext) = current_path.extension() {
-                    file_stem.push(".");
-                    file_stem.push(ext);
-                }
-                tmp_path.set_file_name(file_stem);
-
-                let tmp_file = gio::File::for_path(&tmp_path);
-
-                let cancellable = gio::Cancellable::new();
-                if let Some(old_cancellable) =
-                    self.save_cancellable.replace(Some(cancellable.clone()))
-                {
-                    old_cancellable.cancel();
-                }
-
-                tracing::debug!("Saving changes …");
-                let written = self
-                    .save(original_file.clone(), tmp_file.clone(), cancellable.clone())
-                    .await;
-                tracing::debug!("Image written: {written}");
-
-                if written {
-                    tracing::debug!("Moving image to trash '{}'", original_file.uri());
-                    self.set_saving_status(Some(gettext("Moving Original to Trash")));
-                    let trash_result = gio::CancellableFuture::new(
-                        original_file.trash_future(glib::Priority::DEFAULT),
-                        cancellable.clone(),
-                    )
-                    .await;
-
-                    if trash_result.is_err() {
-                        // Canceled
-                        tracing::debug!("Trashing image canceled");
-                        self.set_saving_status(None);
-                        return Err(());
-                    } else if let Ok(Err(err)) = trash_result {
-                        obj.window_show_error(
-                                    &gettext("Failed to save image."),
-                                    &format!("Failed to move image {current_path:?} to trash and therefore couldn't save image: {err}"),
-                                    ErrorType::General,
-                                );
-                        self.set_saving_status(None);
-                        return Err(());
-                    }
-
-                    tracing::debug!("Moving '{}' to '{}'", tmp_file.uri(), original_file.uri());
-                    self.set_saving_status(Some(gettext("Finalizing Save Operation")));
-                    let move_result = gio::CancellableFuture::new(
-                        tmp_file
-                            .move_future(
-                                &original_file,
-                                gio::FileCopyFlags::NONE,
-                                glib::Priority::DEFAULT,
-                            )
-                            .0,
-                        cancellable.clone(),
-                    )
-                    .await;
-
-                    if move_result.is_err() {
-                        // Canceled
-                        tracing::debug!("Moving image canceled");
-                        self.set_saving_status(None);
-                        return Err(());
-                    } else if let Ok(Err(err)) = move_result {
-                        obj.window_show_error(
-                                        &gettext("Failed to save image."),
-                                        &format!(
-                                            "Failed to move image image to {current_path:?}: {err} move {:?} to {:?}", tmp_file.path().unwrap(), original_file.path().unwrap()
-                                        ),
-                                        ErrorType::General,
-                                    );
-                        self.set_saving_status(None);
-                        return Err(());
-                    }
-
-                    self.has_unsaved_changes.replace(false);
-                    obj.window_inspect(|w| w.show_specific_image(original_file));
-                    return Ok(());
-                }
+                old_cancellable.cancel();
             }
 
-            // Nothing was written, so the edits are still only here
-            Err(())
+            tracing::debug!("Saving changes …");
+            let Some(data) = self
+                .render_edited(opened_file.clone(), cancellable.clone())
+                .await
+            else {
+                // Nothing was written, so the edits are still only here
+                return Err(());
+            };
+
+            // The edited bytes are written, synced and given the permissions of the original
+            // before the original is touched
+            self.set_saving_status(Some(gettext("Saving Image")));
+            let write_path = current_path.clone();
+            let tmp_file = match gio::spawn_blocking(move || {
+                super::write_tmp_file(&write_path, &data)
+            })
+            .await
+            {
+                Ok(Ok(tmp_path)) => gio::File::for_path(tmp_path),
+                Ok(Err(err)) => {
+                    self.show_save_error(&format!(
+                        "Failed to write edited image for {name}: {err}"
+                    ));
+                    return Err(());
+                }
+                Err(_) => {
+                    self.show_save_error("Writing the edited image panicked.");
+                    return Err(());
+                }
+            };
+            tracing::debug!("Image written to '{}'", tmp_file.uri());
+
+            if cancellable.is_cancelled() {
+                // Canceled before the original was touched
+                tracing::debug!("Saving canceled");
+                self.set_saving_status(None);
+                Self::remove_tmp_file(&tmp_file).await;
+                return Err(());
+            }
+
+            // The trash portal can't be used for files shared via the document portal
+            let trash_failed = if super::is_document_portal_path(&current_path) {
+                tracing::debug!("Not trashing document portal file {current_path:?}");
+                true
+            } else {
+                tracing::debug!("Moving image to trash '{}'", original_file.uri());
+                self.set_saving_status(Some(gettext("Moving Original to Trash")));
+                // The result is awaited without a cancellable since a trash operation
+                // that has been started can't be told apart from a finished one otherwise
+                match original_file.trash_future(glib::Priority::DEFAULT).await {
+                    Ok(()) => false,
+                    Err(err) => {
+                        tracing::warn!("Failed to move {current_path:?} to trash: {err}");
+                        true
+                    }
+                }
+            };
+
+            // Flags for moving the temporary file into place
+            let mut move_flags = gio::FileCopyFlags::NONE;
+
+            if trash_failed {
+                // The user asked to replace the original, so it is overwritten without a copy
+                // in the trash
+                if cancellable.is_cancelled() {
+                    self.set_saving_status(None);
+                    Self::remove_tmp_file(&tmp_file).await;
+                    return Err(());
+                }
+                tracing::debug!("Replacing original without trashing it");
+                // Same directory, so this is an atomic rename
+                move_flags = gio::FileCopyFlags::OVERWRITE;
+            } else if cancellable.is_cancelled() {
+                tracing::debug!("Canceled too late, original is already in the trash");
+            }
+
+            tracing::debug!("Moving '{}' to '{}'", tmp_file.uri(), original_file.uri());
+            self.set_saving_status(Some(gettext("Finalizing Save Operation")));
+            // Also awaited to the end, the original is gone at this point if it was trashed
+            let move_result = tmp_file
+                .move_future(&original_file, move_flags, glib::Priority::DEFAULT)
+                .0
+                .await;
+
+            if let Err(err) = move_result {
+                // Without the original the temporary file holds the only edited copy
+                let keep_tmp = !trash_failed && Self::is_not_found(&original_file).await;
+                let tmp_path = tmp_file.path().unwrap_or_default();
+                let tmp_name = super::display_name(&tmp_path);
+                let reason = super::path_free_message(
+                    err.message(),
+                    &[current_path.as_path(), tmp_path.as_path()],
+                );
+                if keep_tmp {
+                    tracing::warn!("Original is gone, keeping '{}'", tmp_file.uri());
+                    self.show_save_error(&format!(
+                        "Failed to move the edited image to {name}: {reason}\n\nThe original is in the trash. The edited image was kept as {tmp_name} in the same folder."
+                    ));
+                } else {
+                    Self::remove_tmp_file(&tmp_file).await;
+                    self.show_save_error(&format!(
+                        "Failed to move the edited image to {name}: {reason}"
+                    ));
+                }
+                return Err(());
+            }
+
+            self.has_unsaved_changes.replace(false);
+            obj.window_inspect(|w| w.show_specific_image(opened_file));
+            Ok(())
+        }
+
+        /// Shows an error for failed saving
+        fn show_save_error(&self, details: &str) {
+            self.obj().window_show_error(
+                &gettext("Failed to save image."),
+                details,
+                ErrorType::General,
+            );
+            self.set_saving_status(None);
+        }
+
+        /// Returns `true` only if `file` is known to not exist
+        async fn is_not_found(file: &gio::File) -> bool {
+            file.query_info_future(
+                gio::FILE_ATTRIBUTE_STANDARD_NAME,
+                gio::FileQueryInfoFlags::NONE,
+                glib::Priority::DEFAULT,
+            )
+            .await
+            .is_err_and(|err| err.matches(gio::IOErrorEnum::NotFound))
+        }
+
+        /// Deletes a temporary file, errors are only logged
+        async fn remove_tmp_file(file: &gio::File) {
+            match file.delete_future(glib::Priority::DEFAULT).await {
+                Ok(()) => tracing::debug!("Removed temporary file '{}'", file.uri()),
+                Err(err) if err.matches(gio::IOErrorEnum::NotFound) => {}
+                Err(err) => tracing::warn!("Failed to remove '{}': {err}", file.uri()),
+            }
         }
 
         #[must_use]
@@ -523,6 +768,20 @@ mod imp {
             new_file: gio::File,
             cancellable: gio::Cancellable,
         ) -> bool {
+            match self.render_edited(current_file, cancellable.clone()).await {
+                Some(data) => self.write(new_file, data, cancellable).await,
+                None => false,
+            }
+        }
+
+        /// Applies the edits and returns the encoded image
+        ///
+        /// Shows errors itself, `None` is returned if there is nothing to save
+        async fn render_edited(
+            &self,
+            current_file: gio::File,
+            cancellable: gio::Cancellable,
+        ) -> Option<Vec<u8>> {
             let obj = self.obj();
 
             obj.edit_crop().apply_crop();
@@ -546,7 +805,7 @@ mod imp {
                     Err(err) if cancellable.is_cancelled() => {
                         tracing::debug!("Rendering edited image canceled: {err}");
                         self.set_saving_status(None);
-                        false
+                        None
                     }
                     Err(err) => {
                         tracing::warn!("Failed to render image: {err}");
@@ -556,9 +815,9 @@ mod imp {
                             ErrorType::Loader,
                         );
                         self.set_saving_status(None);
-                        false
+                        None
                     }
-                    Ok(data) => self.write(new_file, data, cancellable).await,
+                    Ok(data) => Some(data),
                 };
             }
 
@@ -586,13 +845,13 @@ mod imp {
                     Ok(edit) => {
                         // TODO: Clone might be avoidable
                         let data = edit.data().to_vec();
-                        return self.write(new_file, data, cancellable).await;
+                        return Some(data);
                     }
                 }
             }
 
             self.set_saving_status(None);
-            false
+            None
         }
 
         /// Writes encoded image data to `new_file`
@@ -664,6 +923,7 @@ mod imp {
                 .borrow()
                 .as_ref()
                 .is_some_and(|x| !x.operations().is_empty())
+                || !self.geometry.get().is_identity()
                 || obj.edit_crop().selection().cropped()
                 || !self.adjustments.get().is_identity()
                 || !self.markup.borrow().is_empty()
@@ -691,6 +951,7 @@ mod imp {
 #[derive(Debug, Clone)]
 pub struct EditState {
     operations: Option<Arc<Operations>>,
+    geometry: Geometry,
     adjustments: Adjustments,
     markup: Arc<Vec<Shape>>,
     resize: Option<f64>,
@@ -731,8 +992,10 @@ impl LpEditWindow {
     fn replace_operations(&self, operations: Option<Arc<glycin::Operations>>) {
         let imp = self.imp();
         imp.operations.replace(operations);
-        // Markup and the resized size follow the operations
+        // Markup, the resized size and the geometry sliders follow the
+        // operations
         self.edit_crop().markup_changed();
+        self.edit_crop().geometry_changed();
         self.edit_crop().update_size_label();
         imp.update_save_state(false);
     }
@@ -768,8 +1031,58 @@ impl LpEditWindow {
         if adjustments == self.adjustments() {
             return;
         }
-        self.record(property);
+        self.record(property.map(Slider::Adjust));
         self.replace_adjustments(adjustments);
+    }
+
+    /// Straightening and perspective, for the original orientation
+    pub fn geometry(&self) -> Geometry {
+        self.imp().geometry.get()
+    }
+
+    /// Changes the straightening and perspective
+    ///
+    /// Changes to the same `property` in a row form one undo step.
+    pub fn change_geometry(&self, geometry: Geometry, property: Option<geometry::Property>) {
+        if geometry == self.geometry() {
+            return;
+        }
+
+        // Markup moves with the picture. While a slider moves, it is moved
+        // from where the slider started, so small errors don't add up.
+        let coalesce = property.map(Slider::Geometry);
+        let continuing = coalesce.is_some() && self.imp().coalesce.get() == coalesce;
+        let (start_geometry, start_markup) = self
+            .imp()
+            .history
+            .borrow()
+            .last()
+            .filter(|_| continuing)
+            .map(|x| (x.geometry, x.markup.clone()))
+            .unwrap_or_else(|| (self.geometry(), self.markup()));
+
+        self.record(coalesce);
+        self.replace_geometry(geometry);
+        self.move_markup_with_geometry(&start_markup, start_geometry, geometry);
+    }
+
+    /// Puts `markup`, drawn on the picture warped by `from`, on the same
+    /// spots of the picture warped by `to`
+    fn move_markup_with_geometry(&self, markup: &[Shape], from: Geometry, to: Geometry) {
+        if markup.is_empty() && self.markup().is_empty() {
+            return;
+        }
+        let (width, height) = self.original_image().image_size();
+        let moved = geometry::follow(markup, from, to, (width as f64, height as f64));
+        self.set_markup_list(Arc::new(moved));
+    }
+
+    fn replace_geometry(&self, geometry: Geometry) {
+        let imp = self.imp();
+        imp.geometry.set(geometry);
+        self.edit_crop().image().set_geometry(geometry);
+        self.edit_crop().geometry_changed();
+        imp.update_save_state(false);
     }
 
     fn replace_adjustments(&self, adjustments: Adjustments) {
@@ -829,6 +1142,7 @@ impl LpEditWindow {
     /// Edits that are applied to the decoded pixels on save
     pub fn pixel_edits(&self) -> PixelEdits {
         PixelEdits {
+            geometry: self.geometry(),
             adjustments: self.adjustments(),
             markup: self.markup(),
             resize: self.resize(),
@@ -858,18 +1172,23 @@ impl LpEditWindow {
         imp.update_save_state(false);
     }
 
-    /// Undoes crop, rotate, flip and resize as one step
+    /// Undoes crop, rotate, flip, straightening and resize as one step
     pub fn reset_crop_view(&self) {
-        if self.operations().is_some() || self.resize().is_some() {
+        if self.operations().is_some() || self.resize().is_some() || !self.geometry().is_identity()
+        {
             self.record(None);
         }
         self.replace_operations(None);
+        let (geometry, markup) = (self.geometry(), self.markup());
+        self.replace_geometry(Geometry::default());
+        self.move_markup_with_geometry(&markup, geometry, Geometry::default());
         self.replace_resize(None);
     }
 
     fn state(&self) -> EditState {
         EditState {
             operations: self.operations(),
+            geometry: self.geometry(),
             adjustments: self.adjustments(),
             markup: self.markup(),
             resize: self.resize(),
@@ -877,7 +1196,7 @@ impl LpEditWindow {
     }
 
     /// Remembers the current state before a change
-    fn record(&self, coalesce: Option<Property>) {
+    fn record(&self, coalesce: Option<Slider>) {
         let imp = self.imp();
 
         if coalesce.is_some() && imp.coalesce.get() == coalesce {
@@ -907,6 +1226,7 @@ impl LpEditWindow {
             tracing::error!("Failed to restore operations: {err}");
         }
         self.replace_operations(state.operations);
+        self.replace_geometry(state.geometry);
         self.replace_adjustments(state.adjustments);
         self.set_markup_list(state.markup);
         self.replace_resize(state.resize);
@@ -985,6 +1305,10 @@ impl LpEditWindow {
 
     /// Returns if the window should proceed with closing
     pub async fn ensure_saved(&self) -> glib::Propagation {
+        // Closing while saving could start a second save
+        if self.imp().save_in_progress.get() {
+            return glib::Propagation::Stop;
+        }
         self.edit_crop().markup_canvas().finish_text();
         if self.has_unsaved_changes() {
             let dialog = adw::AlertDialog::new(
@@ -1033,5 +1357,115 @@ impl LpEditWindow {
         } else {
             glib::Propagation::Proceed
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::{
+        display_name, is_document_portal_path, path_free_message, tmp_path, write_tmp_file,
+    };
+
+    #[test]
+    fn tmp_path_names() {
+        let p = Path::new("/a/b/photo.png");
+        assert_eq!(tmp_path(p, 0).unwrap(), Path::new("/a/b/photo.tmp.png"));
+        assert_eq!(tmp_path(p, 2).unwrap(), Path::new("/a/b/photo.tmp2.png"));
+        assert_eq!(
+            tmp_path(Path::new("/a/noext"), 0).unwrap(),
+            Path::new("/a/noext.tmp")
+        );
+        assert!(tmp_path(Path::new("/"), 0).is_none());
+    }
+
+    #[test]
+    fn document_portal_paths() {
+        assert!(is_document_portal_path(Path::new(
+            "/run/user/1000/doc/abc/x.png"
+        )));
+        assert!(!is_document_portal_path(Path::new(
+            "/run/user/1000/other/x.png"
+        )));
+        assert!(!is_document_portal_path(Path::new("/home/u/doc/x.png")));
+        assert!(!is_document_portal_path(Path::new(
+            "run/user/1000/doc/x.png"
+        )));
+    }
+
+    #[test]
+    fn display_names() {
+        assert_eq!(display_name(Path::new("/a/b/photo.png")), "photo.png");
+        assert_eq!(display_name(Path::new("/")), "");
+    }
+
+    #[test]
+    fn write_tmp_file_is_exclusive_and_keeps_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("glance-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("photo.png");
+        std::fs::write(&original, b"old").unwrap();
+        std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o640)).unwrap();
+        // Occupied names, one of them a dangling symlink
+        std::fs::write(dir.join("photo.tmp.png"), b"user data").unwrap();
+        std::os::unix::fs::symlink(dir.join("missing"), dir.join("photo.tmp1.png")).unwrap();
+
+        let tmp = write_tmp_file(&original, b"new").unwrap();
+
+        assert_eq!(tmp, dir.join("photo.tmp2.png"));
+        assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
+        assert_eq!(
+            std::fs::read(dir.join("photo.tmp.png")).unwrap(),
+            b"user data"
+        );
+        assert!(!dir.join("missing").exists());
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().permissions().mode() & 0o777,
+            0o640
+        );
+        assert_eq!(std::fs::read(&original).unwrap(), b"old");
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn path_free_messages() {
+        let orig = Path::new("/home/u/pics/photo.png");
+        let tmp = Path::new("/home/u/pics/photo.tmp.png");
+        assert_eq!(
+            path_free_message(
+                "Error renaming file /home/u/pics/photo.tmp.png: Permission denied",
+                &[orig, tmp]
+            ),
+            "Permission denied"
+        );
+        assert_eq!(
+            path_free_message("Error moving /home/u/pics/photo.png", &[orig, tmp]),
+            "Error moving photo.png"
+        );
+    }
+
+    #[test]
+    fn write_tmp_file_read_only_original() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("glance-test-ro-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let original = dir.join("photo.png");
+        std::fs::write(&original, b"old").unwrap();
+        std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o444)).unwrap();
+
+        let tmp = write_tmp_file(&original, b"new").unwrap();
+
+        assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
+        assert_eq!(
+            std::fs::metadata(&tmp).unwrap().permissions().mode() & 0o777,
+            0o444
+        );
+
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

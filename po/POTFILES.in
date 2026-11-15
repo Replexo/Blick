@@ -61,6 +61,7 @@ src/widgets/image_window.rs
 src/widgets/image_window.ui
 src/widgets/image_window/actions.rs
 src/widgets/image_window/controls.rs
+src/widgets/image_window/set.rs
 src/widgets/print.rs
 src/widgets/print.ui
 src/widgets/print_preview.rs
@@ -69,6 +70,7 @@ src/widgets/properties_view.ui
 src/widgets/shy_bin.rs
 src/widgets/sliding_view.rs
 src/widgets/text_layer.rs
+src/widgets/thumbnail_strip.rs
 src/widgets/update_dialog.rs
 src/widgets/window.rs
 src/widgets/window.ui

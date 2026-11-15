@@ -15,7 +15,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::cell::{Cell, OnceCell};
+use std::cell::{Cell, OnceCell, RefCell};
 
 use adw::gtk::graphene;
 use adw::prelude::*;
@@ -26,7 +26,12 @@ use super::crop::{LpAspectRatio, LpEditCrop, LpOrientation};
 use crate::deps::*;
 use crate::widgets::LpImage;
 
-const MIN_SELECTION_SIZE: f32 = 80.;
+/// Smallest crop, in image pixels
+const MIN_CROP_PIXELS: f32 = 4.;
+/// Selections smaller than this (drawn pixels) are covered by their handles
+const SMALL_SELECTION: f32 = 56.;
+/// Smallest area in the middle of a small selection that moves it, in drawn pixels
+const MIN_MIDDLE_HIT: f64 = 16.;
 
 #[derive(Debug, Clone, Copy)]
 struct InResize {
@@ -37,6 +42,18 @@ struct InResize {
 #[derive(Debug, Clone, Copy)]
 struct InMove {
     initial_selection: graphene::Rect,
+}
+
+/// Where a drag started, so it keeps following the pointer while the
+/// picture zooms
+#[derive(Debug, Clone, Copy)]
+struct DragStart {
+    /// Selection in image pixels
+    selection: graphene::Rect,
+    /// Pointer in image pixels
+    pointer: (f64, f64),
+    /// Pointer in widget coordinates
+    widget_pointer: (f64, f64),
 }
 
 /// Corners and edges of a rectangle
@@ -205,6 +222,12 @@ mod imp {
         pub(super) selection_in_move: Cell<Option<InMove>>,
         /// Set while resetting the crop area
         pub(super) selection_in_reset: Cell<bool>,
+        drag_start: Cell<Option<DragStart>>,
+        /// Pointer offset of the drag, for zooming out at the edges
+        drag_offset: Cell<(f64, f64)>,
+        edge_zoom: RefCell<Option<gtk::TickCallbackId>>,
+        /// Shows a grid over the selection while straightening
+        pub(super) grid: Cell<bool>,
 
         // Animates changes between different fixed aspect ratios
         aspect_ratio_animation: OnceCell<adw::TimedAnimation>,
@@ -214,8 +237,9 @@ mod imp {
         #[property(get, set=Self::set_orientation, builder(LpOrientation::default()))]
         orientation: Cell<LpOrientation>,
 
-        /// Last selected crop area
-        crop_area_image_coord: Cell<Option<(u32, u32, u32, u32)>>,
+        /// Last selected crop area, in image pixels. Not rounded, so that
+        /// dragging at high zoom does not snap to whole image pixels.
+        crop_area_image_coord: Cell<Option<(f64, f64, f64, f64)>>,
 
         #[property(get)]
         cropped: Cell<bool>,
@@ -256,6 +280,8 @@ mod imp {
             let obj = self.obj().to_owned();
 
             obj.set_direction(gtk::TextDirection::Ltr);
+            // The dimmed areas reach past the view when zoomed in
+            obj.set_overflow(gtk::Overflow::Hidden);
             self.selection.set_direction(gtk::TextDirection::Ltr);
             self.handle_bottom_left
                 .set_direction(gtk::TextDirection::Ltr);
@@ -312,11 +338,23 @@ mod imp {
                         .start_point()
                         .and_then(|(x, y)| obj.pick(x, y, gtk::PickFlags::DEFAULT));
 
+                    if let Some(crop) = obj.ancestor(LpEditCrop::static_type()) {
+                        crop.downcast_ref::<LpEditCrop>().unwrap().stop_crop_zoom();
+                    }
+                    imp.set_drag_start(gesture.start_point());
+
+                    // A selection too small for its handles is still moved
+                    // from its middle
+                    let in_middle = gesture
+                        .start_point()
+                        .is_some_and(|(x, y)| imp.in_small_middle(x, y));
+
                     // Lookup if the start-point of the gesture is above a drag handle widget and
                     // what corner/edge it is
                     if let Some(handle) = hovered_widget
                         .as_ref()
                         .and_then(|x| drag_handles.get(x).copied())
+                        .filter(|_| !in_middle)
                     {
                         gesture.set_state(gtk::EventSequenceState::Claimed);
 
@@ -326,7 +364,8 @@ mod imp {
                             handle,
                             initial_selection: crop_area,
                         }));
-                    } else if hovered_widget.is_some_and(|x| x == *imp.selection) {
+                        imp.start_edge_zoom();
+                    } else if in_middle || hovered_widget.is_some_and(|x| x == *imp.selection) {
                         gesture.set_state(gtk::EventSequenceState::Claimed);
 
                         let crop_area = imp.crop_area();
@@ -346,45 +385,8 @@ mod imp {
                 obj,
                 move |_, x, y| {
                     let imp = obj.imp();
-
-                    imp.aspect_ratio_animation().pause();
-
-                    if let Some(in_move) = imp.selection_in_move.get() {
-                        let moved_area = imp.moved_crop_area(&in_move, (x, y));
-
-                        imp.set_crop(moved_area);
-                    } else if let Some(resize) = imp.selection_in_resize.get() {
-                        let coord = (x, y);
-
-                        let new_area = if let Some(aspect_ratio) = imp.aspect_ratio() {
-                            // Width for height an vice versa is only needed if corner is dragged
-                            // and both dimensions change
-                            if resize.handle.h_edge().is_none() {
-                                imp.new_crop_area_aspect_ratio(&resize, true, coord, aspect_ratio)
-                            } else if resize.handle.v_edge().is_none() {
-                                imp.new_crop_area_aspect_ratio(&resize, false, coord, aspect_ratio)
-                            } else {
-                                let u = imp.new_crop_area_aspect_ratio(
-                                    &resize,
-                                    true,
-                                    coord,
-                                    aspect_ratio,
-                                );
-                                let v = imp.new_crop_area_aspect_ratio(
-                                    &resize,
-                                    false,
-                                    coord,
-                                    aspect_ratio,
-                                );
-
-                                if u.area() > v.area() { u } else { v }
-                            }
-                        } else {
-                            imp.new_crop_area_aspect_free(&resize, coord)
-                        };
-
-                        imp.set_crop(new_area);
-                    }
+                    imp.drag_offset.set((x, y));
+                    imp.drag_to((x, y));
                 }
             ));
 
@@ -393,8 +395,17 @@ mod imp {
                 #[weak]
                 obj,
                 move |_, _, _| {
-                    obj.imp().set_selection_in_resize(None);
-                    obj.imp().set_selection_in_move(None);
+                    let imp = obj.imp();
+                    let dragged = imp.selection_in_resize.get().is_some()
+                        || imp.selection_in_move.get().is_some();
+                    imp.stop_edge_zoom();
+                    imp.set_selection_in_resize(None);
+                    imp.set_selection_in_move(None);
+                    imp.drag_start.set(None);
+                    // The picture zooms so the crop fills the view
+                    if dragged && let Some(crop) = obj.ancestor(LpEditCrop::static_type()) {
+                        crop.downcast_ref::<LpEditCrop>().unwrap().zoom_to_crop();
+                    }
                 }
             ));
         }
@@ -409,9 +420,34 @@ mod imp {
     }
 
     impl WidgetImpl for LpEditCropSelection {
+        fn snapshot(&self, snapshot: &gtk::Snapshot) {
+            self.parent_snapshot(snapshot);
+            if !self.grid.get() {
+                return;
+            }
+
+            let x = self.crop_x.get() + self.total_x();
+            let y = self.crop_y.get() + self.total_y();
+            let (width, height) = (self.crop_width.get(), self.crop_height.get());
+            // Straighten grid: white at 45 %, see "Fixed literals" in system.md
+            let color = gdk::RGBA::new(1., 1., 1., 0.45);
+            const LINES: u32 = 6;
+            for i in 1..LINES {
+                let fraction = i as f32 / LINES as f32;
+                snapshot.append_color(
+                    &color,
+                    &graphene::Rect::new(x + width * fraction - 0.5, y, 1., height),
+                );
+                snapshot.append_color(
+                    &color,
+                    &graphene::Rect::new(x, y + height * fraction - 0.5, width, 1.),
+                );
+            }
+        }
+
         fn size_allocate(&self, _width: i32, _height: i32, _baseline: i32) {
-            let total_x = self.total_x() as f32;
-            let total_y = self.total_y() as f32;
+            let total_x = self.total_x();
+            let total_y = self.total_y();
             let total_height = self.total_height();
             let total_width: i32 = self.total_width();
 
@@ -476,6 +512,20 @@ mod imp {
     impl GridImpl for LpEditCropSelection {}
 
     impl LpEditCropSelection {
+        /// If the point (in widget coordinates) is in the middle of a selection
+        /// that is smaller than its handles. The handles cover such a
+        /// selection, so the middle keeps a hit area of at least 16 px.
+        fn in_small_middle(&self, x: f64, y: f64) -> bool {
+            let (crop_x, crop_y, width, height) = self.crop_area().into_tuple();
+            if width >= SMALL_SELECTION && height >= SMALL_SELECTION {
+                return false;
+            }
+            let center_x = (self.total_x() + crop_x + width / 2.) as f64;
+            let center_y = (self.total_y() + crop_y + height / 2.) as f64;
+            (x - center_x).abs() <= (width as f64 / 4.).max(MIN_MIDDLE_HIT / 2.)
+                && (y - center_y).abs() <= (height as f64 / 4.).max(MIN_MIDDLE_HIT / 2.)
+        }
+
         /// Current crop area
         fn crop_area(&self) -> graphene::Rect {
             let obj = self.obj();
@@ -563,19 +613,20 @@ mod imp {
         ) -> graphene::Rect {
             let (mut x, mut y, mut width, mut height) =
                 self.new_crop_area(resize, (x, y)).into_tuple();
+            let min = self.min_size();
 
-            if width < MIN_SELECTION_SIZE {
-                let x_diff = width - MIN_SELECTION_SIZE;
-                width = MIN_SELECTION_SIZE;
+            if width < min {
+                let x_diff = width - min;
+                width = min;
 
                 if matches!(resize.handle.h_edge(), Some(HEdge::Left)) {
                     x += x_diff;
                 }
             }
 
-            if height < MIN_SELECTION_SIZE {
-                let y_diff = height - MIN_SELECTION_SIZE;
-                height = MIN_SELECTION_SIZE;
+            if height < min {
+                let y_diff = height - min;
+                height = min;
 
                 if matches!(resize.handle.v_edge(), Some(VEdge::Top)) {
                     y += y_diff;
@@ -641,6 +692,150 @@ mod imp {
             graphene::Rect::new(x, y, width, height)
         }
 
+        /// Image pixels to drawn pixels
+        fn scale(&self) -> f32 {
+            self.image().img_to_draw_coord((1., 1.)).0 as f32
+        }
+
+        /// Smallest selection, in drawn pixels
+        fn min_size(&self) -> f32 {
+            (MIN_CROP_PIXELS * self.scale()).max(1.)
+        }
+
+        fn set_drag_start(&self, widget_pointer: Option<(f64, f64)>) {
+            let scale = self.scale();
+            let Some(widget_pointer) = widget_pointer.filter(|_| scale > 0.) else {
+                self.drag_start.set(None);
+                return;
+            };
+            let (x, y, width, height) = self.crop_area().into_tuple();
+            self.drag_offset.set((0., 0.));
+            self.drag_start.set(Some(DragStart {
+                selection: graphene::Rect::new(x / scale, y / scale, width / scale, height / scale),
+                pointer: self.image().widget_to_img_coord(widget_pointer),
+                widget_pointer,
+            }));
+        }
+
+        /// Follows the drag with the pointer `offset` away from where it
+        /// started. Works in image pixels, so the zoom can change meanwhile.
+        fn drag_to(&self, offset: (f64, f64)) {
+            self.aspect_ratio_animation().pause();
+            let Some(start) = self.drag_start.get() else {
+                return;
+            };
+            let scale = self.scale();
+            let pointer = self.image().widget_to_img_coord((
+                start.widget_pointer.0 + offset.0,
+                start.widget_pointer.1 + offset.1,
+            ));
+            let offset = (
+                (pointer.0 - start.pointer.0) * scale as f64,
+                (pointer.1 - start.pointer.1) * scale as f64,
+            );
+            let (x, y, width, height) = start.selection.into_tuple();
+            let initial = graphene::Rect::new(x * scale, y * scale, width * scale, height * scale);
+
+            if let Some(mut in_move) = self.selection_in_move.get() {
+                in_move.initial_selection = initial;
+                let moved_area = self.moved_crop_area(&in_move, offset);
+
+                self.set_crop(moved_area);
+            } else if let Some(mut resize) = self.selection_in_resize.get() {
+                resize.initial_selection = initial;
+                let coord = offset;
+
+                let new_area = if let Some(aspect_ratio) = self.aspect_ratio() {
+                    // Width for height an vice versa is only needed if corner is dragged
+                    // and both dimensions change
+                    if resize.handle.h_edge().is_none() {
+                        self.new_crop_area_aspect_ratio(&resize, true, coord, aspect_ratio)
+                    } else if resize.handle.v_edge().is_none() {
+                        self.new_crop_area_aspect_ratio(&resize, false, coord, aspect_ratio)
+                    } else {
+                        let u = self.new_crop_area_aspect_ratio(&resize, true, coord, aspect_ratio);
+                        let v =
+                            self.new_crop_area_aspect_ratio(&resize, false, coord, aspect_ratio);
+
+                        if u.area() > v.area() { u } else { v }
+                    }
+                } else {
+                    self.new_crop_area_aspect_free(&resize, coord)
+                };
+
+                self.set_crop(new_area);
+            }
+        }
+
+        /// Zooms out while a handle is dragged past the edge of the view
+        fn start_edge_zoom(&self) {
+            self.stop_edge_zoom();
+            let id = self.obj().add_tick_callback(|obj, _| {
+                obj.imp().edge_zoom_step();
+                glib::ControlFlow::Continue
+            });
+            self.edge_zoom.replace(Some(id));
+        }
+
+        fn stop_edge_zoom(&self) {
+            if let Some(id) = self.edge_zoom.take() {
+                id.remove();
+            }
+        }
+
+        fn edge_zoom_step(&self) {
+            let (Some(resize), Some(start)) =
+                (self.selection_in_resize.get(), self.drag_start.get())
+            else {
+                return;
+            };
+            let image = self.image();
+            if image.is_best_fit() {
+                return;
+            }
+            let offset = self.drag_offset.get();
+            let (x, y) = (
+                start.widget_pointer.0 + offset.0,
+                start.widget_pointer.1 + offset.1,
+            );
+            let (left, top, right, bottom) = image.fit_insets();
+            let (width, height) = (image.width() as f64, image.height() as f64);
+            let beyond = match resize.handle.h_edge() {
+                Some(HEdge::Left) => x < left,
+                Some(HEdge::Right) => x > width - right,
+                None => false,
+            } || match resize.handle.v_edge() {
+                Some(VEdge::Top) => y < top,
+                Some(VEdge::Bottom) => y > height - bottom,
+                None => false,
+            };
+            if !beyond {
+                return;
+            }
+
+            // The opposite side stays in place
+            let (cx, cy, cw, ch) = self.crop_area().into_tuple();
+            let anchor_x = match resize.handle.h_edge() {
+                Some(HEdge::Left) => cx + cw,
+                Some(HEdge::Right) => cx,
+                None => cx + cw / 2.,
+            };
+            let anchor_y = match resize.handle.v_edge() {
+                Some(VEdge::Top) => cy + ch,
+                Some(VEdge::Bottom) => cy,
+                None => cy + ch / 2.,
+            };
+            let zoom = (image.zoom() * 0.97).max(image.best_fit_zoom());
+            image.zoom_at(
+                zoom,
+                (
+                    self.total_x() as f64 + anchor_x as f64,
+                    self.total_y() as f64 + anchor_y as f64,
+                ),
+            );
+            self.drag_to(offset);
+        }
+
         /// Ensure selection is not smaller than minimum size
         fn rect_limit_minumum_size(
             &self,
@@ -649,12 +844,13 @@ mod imp {
             handle: RectHandle,
         ) {
             let (mut x, mut y, mut width, mut height) = rect.into_tuple();
+            let min = self.min_size();
 
-            if width < MIN_SELECTION_SIZE {
-                let x_diff = width - MIN_SELECTION_SIZE;
-                width = MIN_SELECTION_SIZE;
-                let y_diff = height - MIN_SELECTION_SIZE / aspect_ratio;
-                height = MIN_SELECTION_SIZE / aspect_ratio;
+            if width < min {
+                let x_diff = width - min;
+                width = min;
+                let y_diff = height - min / aspect_ratio;
+                height = min / aspect_ratio;
 
                 if matches!(handle.v_edge(), Some(VEdge::Top)) {
                     y += y_diff;
@@ -664,11 +860,11 @@ mod imp {
                 }
             }
 
-            if height < MIN_SELECTION_SIZE {
-                let x_diff = width - MIN_SELECTION_SIZE * aspect_ratio;
-                width = MIN_SELECTION_SIZE * aspect_ratio;
-                let y_diff = height - MIN_SELECTION_SIZE;
-                height = MIN_SELECTION_SIZE;
+            if height < min {
+                let x_diff = width - min * aspect_ratio;
+                width = min * aspect_ratio;
+                let y_diff = height - min;
+                height = min;
 
                 if matches!(handle.v_edge(), Some(VEdge::Top)) {
                     y += y_diff;
@@ -909,7 +1105,7 @@ mod imp {
         }
 
         fn update_crop_area_image_coord(&self) {
-            let crop_area_image_coord = self.crop_area_image_coord();
+            let crop_area_image_coord = self.crop_area_image_f64();
             if self.is_in_user_change() {
                 tracing::trace!(
                     "Setting crop are in image coordinates to {crop_area_image_coord:?}"
@@ -918,12 +1114,15 @@ mod imp {
             }
         }
 
-        fn total_x(&self) -> i32 {
-            self.image().image_rendering_x() as i32
+        /// Left edge of the picture, which moves when it is zoomed in
+        fn total_x(&self) -> f32 {
+            let image = self.image();
+            image.round_f32((image.image_rendering_x() - image.hadj().value()) as f32)
         }
 
-        fn total_y(&self) -> i32 {
-            self.image().image_rendering_y() as i32
+        fn total_y(&self) -> f32 {
+            let image = self.image();
+            image.round_f32((image.image_rendering_y() - image.vadj().value()) as f32)
         }
 
         pub(super) fn total_width(&self) -> i32 {
@@ -946,14 +1145,25 @@ mod imp {
 
         pub(super) fn aspect_ratio_animation(&self) -> &adw::TimedAnimation {
             self.aspect_ratio_animation.get_or_init(|| {
-                adw::TimedAnimation::builder()
+                let animation = adw::TimedAnimation::builder()
                     .duration(200)
                     .value_from(0.)
                     .value_to(1.)
                     .easing(adw::Easing::EaseOutSine)
                     .widget(&*self.obj())
                     .target(&adw::CallbackAnimationTarget::new(|_| {}))
-                    .build()
+                    .build();
+                // The picture zooms so the new crop fills the view
+                animation.connect_done(glib::clone!(
+                    #[weak(rename_to = obj)]
+                    self.obj(),
+                    move |_| {
+                        if let Some(crop) = obj.ancestor(LpEditCrop::static_type()) {
+                            crop.downcast_ref::<LpEditCrop>().unwrap().zoom_to_crop();
+                        }
+                    }
+                ));
+                animation
             })
         }
 
@@ -984,30 +1194,37 @@ mod imp {
             }
         }
 
-        pub(super) fn crop_area_image_coord(&self) -> Option<(u32, u32, u32, u32)> {
+        /// Crop area in image pixels, not rounded
+        fn crop_area_image_f64(&self) -> Option<(f64, f64, f64, f64)> {
             let obj = self.obj();
 
             if !self.is_cropped() {
                 return None;
             }
 
-            let image = self.image();
+            let scale = self.scale() as f64;
+            if scale <= 0. {
+                return None;
+            }
+            let (x1, y1) = (obj.crop_x() as f64 / scale, obj.crop_y() as f64 / scale);
+            let (x2, y2) = (
+                (obj.crop_x() + obj.crop_width()) as f64 / scale,
+                (obj.crop_y() + obj.crop_height()) as f64 / scale,
+            );
 
-            let (x1, y1) = image.widget_to_img_coord((
-                image.image_rendering_x() + obj.crop_x() as f64,
-                image.image_rendering_y() + obj.crop_y() as f64,
-            ));
-            let (x2, y2) = image.widget_to_img_coord((
-                image.image_rendering_x() + obj.crop_x() as f64 + obj.crop_width() as f64,
-                image.image_rendering_y() + obj.crop_y() as f64 + obj.crop_height() as f64,
-            ));
+            Some((x1, y1, x2 - x1, y2 - y1))
+        }
 
-            Some((
-                x1.round() as u32,
-                y1.round() as u32,
-                (x2 - x1).round() as u32,
-                (y2 - y1).round() as u32,
-            ))
+        /// Crop area in whole image pixels, for cutting the picture
+        pub(super) fn crop_area_image_coord(&self) -> Option<(u32, u32, u32, u32)> {
+            self.crop_area_image_f64().map(|(x, y, width, height)| {
+                (
+                    x.round() as u32,
+                    y.round() as u32,
+                    width.round() as u32,
+                    height.round() as u32,
+                )
+            })
         }
 
         fn crop_area_widget_coord(&self) -> (f32, f32, f32, f32) {
@@ -1017,9 +1234,9 @@ mod imp {
             let (x, y, w, h) =
                 self.crop_area_image_coord
                     .get()
-                    .unwrap_or((0, 0, size.0 as u32, size.1 as u32));
-            let (x, y) = image.img_to_draw_coord((x as f64, y as f64));
-            let (w, h) = image.img_to_draw_coord((w as f64, h as f64));
+                    .unwrap_or((0., 0., size.0 as f64, size.1 as f64));
+            let (x, y) = image.img_to_draw_coord((x, y));
+            let (w, h) = image.img_to_draw_coord((w, h));
 
             (
                 x.round() as f32,
@@ -1076,6 +1293,12 @@ glib::wrapper! {
 impl LpEditCropSelection {
     pub fn new() -> Self {
         glib::Object::new()
+    }
+
+    pub fn set_grid(&self, grid: bool) {
+        if self.imp().grid.replace(grid) != grid {
+            self.queue_draw();
+        }
     }
 
     pub fn reset(&self) {

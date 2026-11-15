@@ -68,11 +68,11 @@ Download the file for your system from the [latest release](https://github.com/R
 
 | System | File | Install |
 |---|---|---|
-| Any Linux (Flatpak) | [`Glance-1.1-x86_64.flatpak`](https://github.com/Replexo/Glance/releases/latest/download/Glance-1.1-x86_64.flatpak) | `flatpak install --user Glance-1.1-x86_64.flatpak` |
-| Any Linux (AppImage) | [`Glance-1.1-x86_64.AppImage`](https://github.com/Replexo/Glance/releases/latest/download/Glance-1.1-x86_64.AppImage) | `chmod +x Glance-1.1-x86_64.AppImage`, then run it |
-| Ubuntu 25.10 and newer | [`glance_1.1_amd64.deb`](https://github.com/Replexo/Glance/releases/latest/download/glance_1.1_amd64.deb) | `sudo apt install ./glance_1.1_amd64.deb` |
-| Fedora 43 and newer | [`glance-1.1-1.fc43.x86_64.rpm`](https://github.com/Replexo/Glance/releases/latest/download/glance-1.1-1.fc43.x86_64.rpm) | `sudo dnf install ./glance-1.1-1.fc43.x86_64.rpm` |
-| Arch Linux | [`glance-1.1-1-x86_64.pkg.tar.zst`](https://github.com/Replexo/Glance/releases/latest/download/glance-1.1-1-x86_64.pkg.tar.zst) | `sudo pacman -U glance-1.1-1-x86_64.pkg.tar.zst` |
+| Any Linux (Flatpak) | [`Glance-1.2-x86_64.flatpak`](https://github.com/Replexo/Glance/releases/latest/download/Glance-1.2-x86_64.flatpak) | `flatpak install --user Glance-1.2-x86_64.flatpak` |
+| Any Linux (AppImage) | [`Glance-1.2-x86_64.AppImage`](https://github.com/Replexo/Glance/releases/latest/download/Glance-1.2-x86_64.AppImage) | `chmod +x Glance-1.2-x86_64.AppImage`, then run it |
+| Ubuntu 25.10 and newer | [`glance-viewer_1.2_amd64.deb`](https://github.com/Replexo/Glance/releases/latest/download/glance-viewer_1.2_amd64.deb) | `sudo apt install ./glance-viewer_1.2_amd64.deb` |
+| Fedora 43 and newer | [`glance-viewer-1.2-1.fc43.x86_64.rpm`](https://github.com/Replexo/Glance/releases/latest/download/glance-viewer-1.2-1.fc43.x86_64.rpm) | `sudo dnf install ./glance-viewer-1.2-1.fc43.x86_64.rpm` |
+| Arch Linux | [`glance-viewer-1.2-1-x86_64.pkg.tar.zst`](https://github.com/Replexo/Glance/releases/latest/download/glance-viewer-1.2-1-x86_64.pkg.tar.zst) | `sudo pacman -U glance-viewer-1.2-1-x86_64.pkg.tar.zst` |
 
 The Flatpak uses the GNOME 51 runtime, which Flatpak downloads from [Flathub](https://flathub.org/setup) if you don't have it yet. Glance is coming to Flathub itself soon, with automatic updates. You can check your download against `SHA256SUMS` on the release page.
 

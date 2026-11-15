@@ -62,9 +62,287 @@
                 <property name="child">
                   <object class="GtkBox">
                     <property name="orientation">vertical</property>
-                    <property name="spacing">8</property>
+                    <property name="spacing">10</property>
                     <child>
-                      <object class="GtkCenterBox">
+                      <!-- Both rows stay in the layout, so nothing moves while they fade; see PageFade -->
+                      <object class="GtkGrid" id="top_grid">
+                        <child>
+                        <object class="GtkBox" id="geometry_page">
+                          <layout>
+                            <property name="column">0</property>
+                            <property name="row">0</property>
+                          </layout>
+                          <property name="orientation">vertical</property>
+                          <property name="spacing">10</property>
+                          <child>
+                            <object class="GtkCenterBox">
+                              <property name="center-widget">
+                                <object class="GtkScrolledWindow">
+                                  <property name="hscrollbar-policy">external</property>
+                                  <property name="vscrollbar-policy">never</property>
+                                  <property name="propagate-natural-width">true</property>
+                                  <property name="propagate-natural-height">true</property>
+                                  <property name="halign">center</property>
+                                  <property name="child">
+                                    <object class="GtkBox">
+                                      <property name="spacing">2</property>
+                                      <style>
+                                        <class name="glance-pill"/>
+                                      </style>
+                                      <child>
+                                        <object class="GtkToggleButton" id="geometry_straighten">
+                                          <property name="tooltip-text" translatable="yes">Straighten</property>
+                                          <property name="action-name">edit-crop.geometry</property>
+                                          <property name="action-target">'straighten'</property>
+                                          <property name="child">
+                                            <object class="GtkBox">
+                                              <property name="spacing">6</property>
+                                              <child>
+                                                <object class="GtkImage">
+                                                  <property name="icon-name">glance-straighten-symbolic</property>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkLabel" id="geometry_straighten_name">
+                                                  <property name="visible">false</property>
+                                                  <property name="label" translatable="yes">Straighten</property>
+                                                  <style>
+                                                    <class name="caption"/>
+                                                  </style>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkLabel" id="geometry_straighten_value">
+                                                  <property name="width-chars">4</property>
+                                                  <property name="xalign">1</property>
+                                                  <property name="label">0</property>
+                                                  <style>
+                                                    <class name="numeric"/>
+                                                    <class name="caption"/>
+                                                    <class name="dimmed"/>
+                                                  </style>
+                                                </object>
+                                              </child>
+                                            </object>
+                                          </property>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton" id="geometry_vertical">
+                                          <property name="tooltip-text" translatable="yes">Vertical Perspective</property>
+                                          <property name="action-name">edit-crop.geometry</property>
+                                          <property name="action-target">'vertical'</property>
+                                          <property name="child">
+                                            <object class="GtkBox">
+                                              <property name="spacing">6</property>
+                                              <child>
+                                                <object class="GtkImage">
+                                                  <property name="icon-name">glance-perspective-vertical-symbolic</property>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkLabel" id="geometry_vertical_name">
+                                                  <property name="visible">false</property>
+                                                  <property name="label" translatable="yes">Vertical</property>
+                                                  <style>
+                                                    <class name="caption"/>
+                                                  </style>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkLabel" id="geometry_vertical_value">
+                                                  <property name="width-chars">4</property>
+                                                  <property name="xalign">1</property>
+                                                  <property name="label">0</property>
+                                                  <style>
+                                                    <class name="numeric"/>
+                                                    <class name="caption"/>
+                                                    <class name="dimmed"/>
+                                                  </style>
+                                                </object>
+                                              </child>
+                                            </object>
+                                          </property>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton" id="geometry_horizontal">
+                                          <property name="tooltip-text" translatable="yes">Horizontal Perspective</property>
+                                          <property name="action-name">edit-crop.geometry</property>
+                                          <property name="action-target">'horizontal'</property>
+                                          <property name="child">
+                                            <object class="GtkBox">
+                                              <property name="spacing">6</property>
+                                              <child>
+                                                <object class="GtkImage">
+                                                  <property name="icon-name">glance-perspective-horizontal-symbolic</property>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkLabel" id="geometry_horizontal_name">
+                                                  <property name="visible">false</property>
+                                                  <property name="label" translatable="yes">Horizontal</property>
+                                                  <style>
+                                                    <class name="caption"/>
+                                                  </style>
+                                                </object>
+                                              </child>
+                                              <child>
+                                                <object class="GtkLabel" id="geometry_horizontal_value">
+                                                  <property name="width-chars">4</property>
+                                                  <property name="xalign">1</property>
+                                                  <property name="label">0</property>
+                                                  <style>
+                                                    <class name="numeric"/>
+                                                    <class name="caption"/>
+                                                    <class name="dimmed"/>
+                                                  </style>
+                                                </object>
+                                              </child>
+                                            </object>
+                                          </property>
+                                        </object>
+                                      </child>
+                                    </object>
+                                  </property>
+                                </object>
+                              </property>
+                            </object>
+                          </child>
+                          <child>
+                            <object class="LpCenterSlider" id="geometry_slider">
+                              <property name="halign">center</property>
+                              <property name="width-request">300</property>
+                            </object>
+                          </child>
+                        </object>
+                        </child>
+                        <child>
+                        <object class="GtkBox" id="aspect_page">
+                          <layout>
+                            <property name="column">0</property>
+                            <property name="row">0</property>
+                          </layout>
+                          <property name="valign">end</property>
+                          <property name="orientation">vertical</property>
+                          <child>
+                            <object class="GtkCenterBox">
+                              <property name="center-widget">
+                                <object class="GtkScrolledWindow">
+                                  <property name="hscrollbar-policy">external</property>
+                                  <property name="vscrollbar-policy">never</property>
+                                  <property name="propagate-natural-width">true</property>
+                                  <property name="propagate-natural-height">true</property>
+                                  <property name="halign">center</property>
+                                  <property name="child">
+                                    <object class="GtkBox" id="aspect_ratio_buttons">
+                                      <property name="spacing">2</property>
+                                      <style>
+                                        <class name="glance-pill"/>
+                                      </style>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">Free</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'free'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">Original</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'original'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">Square</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'square'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">5:4</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'r5to4'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">4:3</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'r4to3'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">3:2</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'r3to2'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="label" translatable="yes">16:9</property>
+                                          <property name="action-name">edit-crop.aspect-ratio</property>
+                                          <property name="action-target">'r16to9'</property>
+                                          <style>
+                                            <class name="text-button"/>
+                                          </style>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkSeparator">
+                                          <property name="orientation">vertical</property>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="icon-name">page-orientation-landscape-symbolic</property>
+                                          <property name="tooltip-text" translatable="yes">Landscape</property>
+                                          <property name="action-name">edit-crop.orientation</property>
+                                          <property name="action-target">'landscape'</property>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="GtkToggleButton">
+                                          <property name="icon-name">page-orientation-portrait-symbolic</property>
+                                          <property name="tooltip-text" translatable="yes">Portrait</property>
+                                          <property name="action-name">edit-crop.orientation</property>
+                                          <property name="action-target">'portrait'</property>
+                                        </object>
+                                      </child>
+                                    </object>
+                                  </property>
+                                </object>
+                              </property>
+                            </object>
+                          </child>
+                        </object>
+                        </child>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkCenterBox" id="action_row">
                         <property name="center-widget">
                           <object class="GtkScrolledWindow">
                             <property name="hscrollbar-policy">external</property>
@@ -79,129 +357,12 @@
                                   <class name="glance-pill"/>
                                 </style>
                                 <child>
-                                  <object class="GtkMenuButton" id="aspect_button">
+                                  <object class="GtkToggleButton" id="aspect_button">
                                     <property name="tooltip-text" translatable="yes">Aspect Ratio</property>
-                                    <property name="direction">up</property>
                                     <property name="child">
                                       <object class="AdwButtonContent" id="aspect_content">
                                         <property name="icon-name">glance-aspect-symbolic</property>
                                         <property name="label" translatable="yes">Free</property>
-                                      </object>
-                                    </property>
-                                    <property name="popover">
-                                      <object class="GtkPopover" id="aspect_popover">
-                                        <property name="has-arrow">false</property>
-                                        <style>
-                                          <class name="glance-card"/>
-                                          <class name="glance-chips"/>
-                                        </style>
-                                        <property name="child">
-                                          <object class="GtkScrolledWindow" id="aspect_scroll">
-                                            <property name="hscrollbar-policy">external</property>
-                                            <property name="vscrollbar-policy">never</property>
-                                            <property name="propagate-natural-width">true</property>
-                                            <property name="propagate-natural-height">true</property>
-                                            <property name="child">
-                                          <object class="GtkBox" id="aspect_ratio_buttons">
-                                            <property name="spacing">2</property>
-                                            <style>
-                                              <class name="glance-pill"/>
-                                            </style>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">Free</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'free'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">Original</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'original'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">Square</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'square'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">5:4</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'r5to4'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">4:3</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'r4to3'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">3:2</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'r3to2'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="label" translatable="yes">16:9</property>
-                                                <property name="action-name">edit-crop.aspect-ratio</property>
-                                                <property name="action-target">'r16to9'</property>
-                                                <style>
-                                                  <class name="text-button"/>
-                                                </style>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkSeparator">
-                                                <property name="orientation">vertical</property>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="icon-name">page-orientation-landscape-symbolic</property>
-                                                <property name="tooltip-text" translatable="yes">Landscape</property>
-                                                <property name="action-name">edit-crop.orientation</property>
-                                                <property name="action-target">'landscape'</property>
-                                              </object>
-                                            </child>
-                                            <child>
-                                              <object class="GtkToggleButton">
-                                                <property name="icon-name">page-orientation-portrait-symbolic</property>
-                                                <property name="tooltip-text" translatable="yes">Portrait</property>
-                                                <property name="action-name">edit-crop.orientation</property>
-                                                <property name="action-target">'portrait'</property>
-                                              </object>
-                                            </child>
-                                          </object>
-                                            </property>
-                                          </object>
-                                        </property>
                                       </object>
                                     </property>
                                   </object>
@@ -214,28 +375,33 @@
                                 <child>
                                   <object class="GtkButton">
                                     <property name="icon-name">glance-rotate-left-symbolic</property>
-                                    <property name="tooltip-text" translatable="yes">Rotate Counter Clockwise</property>
+                                    <property name="tooltip-text" translatable="yes">Rotate Left</property>
                                     <property name="action-name">edit-crop.rotate-ccw</property>
                                   </object>
                                 </child>
                                 <child>
                                   <object class="GtkButton">
                                     <property name="icon-name">glance-rotate-right-symbolic</property>
-                                    <property name="tooltip-text" translatable="yes">Rotate Clockwise</property>
+                                    <property name="tooltip-text" translatable="yes">Rotate Right</property>
                                     <property name="action-name">edit-crop.rotate-cw</property>
                                   </object>
                                 </child>
                                 <child>
                                   <object class="GtkButton">
                                     <property name="icon-name">glance-flip-symbolic</property>
-                                    <property name="tooltip-text" translatable="yes">Mirror Horizontally</property>
+                                    <property name="tooltip-text" translatable="yes">Flip Horizontally</property>
                                     <property name="action-name">edit-crop.mirror-horizontally</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkSeparator">
+                                    <property name="orientation">vertical</property>
                                   </object>
                                 </child>
                                 <child>
                                   <object class="GtkButton">
                                     <property name="icon-name">glance-resize-symbolic</property>
-                                    <property name="tooltip-text" translatable="yes">Resize</property>
+                                    <property name="tooltip-text" translatable="yes">Resize…</property>
                                     <property name="action-name">edit-crop.resize</property>
                                   </object>
                                 </child>
@@ -246,8 +412,7 @@
                                 </child>
                                 <child>
                                   <object class="GtkButton">
-                                    <property name="label" translatable="yes">_Reset</property>
-                                    <property name="use-underline">true</property>
+                                    <property name="label" translatable="yes">Reset</property>
                                     <property name="tooltip-text" translatable="yes">Undo Changes in this View</property>
                                     <property name="action-name">edit-crop.reset</property>
                                     <style>

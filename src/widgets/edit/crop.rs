@@ -26,15 +26,100 @@ use adw::{glib, gtk};
 use glycin::{Operation, Operations};
 
 use crate::deps::*;
+use crate::editing::geometry::{self, Geometry};
 use crate::editing::preview::EditingError;
 use crate::util::ErrorType;
 use crate::util::gettext::*;
 use crate::util::root::ParentWindow;
 use crate::widgets::LpImage;
-use crate::widgets::edit::markup::{font_from_name, tool_from_name, width_from_name};
+use crate::widgets::edit::color_card::color_from_hex;
+use crate::widgets::edit::frost::PageFade;
+use crate::widgets::edit::markup::{factor_from_slider, font_from_name, tool_from_name};
 use crate::widgets::edit::{
-    LpEditAdjust, LpEditCropSelection, LpEditMarkup, LpFrost, LpMarkupCanvas, LpResizeDialog,
+    LpCenterSlider, LpEditAdjust, LpEditCropSelection, LpEditMarkup, LpFrost, LpMarkupCanvas,
+    LpResizeDialog,
 };
+
+fn geometry_name(property: geometry::Property) -> &'static str {
+    match property {
+        geometry::Property::Straighten => "straighten",
+        geometry::Property::Vertical => "vertical",
+        geometry::Property::Horizontal => "horizontal",
+    }
+}
+
+fn geometry_from_name(name: &str) -> Option<geometry::Property> {
+    [
+        geometry::Property::Straighten,
+        geometry::Property::Vertical,
+        geometry::Property::Horizontal,
+    ]
+    .into_iter()
+    .find(|property| geometry_name(*property) == name)
+}
+
+/// Name shown next to the value of the checked geometry button
+fn geometry_short_name(property: geometry::Property) -> String {
+    match property {
+        geometry::Property::Straighten => gettext("Straighten"),
+        geometry::Property::Vertical => gettext("Vertical"),
+        geometry::Property::Horizontal => gettext("Horizontal"),
+    }
+}
+
+/// Degrees or percent of a geometry value, rounded like the label shows it
+fn geometry_amount(property: geometry::Property, value: f64) -> i32 {
+    match property {
+        geometry::Property::Straighten => value * geometry::MAX_ANGLE,
+        _ => value * 100.,
+    }
+    .round() as i32
+}
+
+/// Signed number with a proper minus sign, "+" only when asked for
+fn signed_number(amount: i32, plus: bool) -> String {
+    match amount {
+        0 => "0".to_owned(),
+        amount if amount < 0 => format!("−{}", amount.abs()),
+        amount if plus => format!("+{amount}"),
+        amount => amount.to_string(),
+    }
+}
+
+/// Value of a geometry button, like "−3°" or "+12"
+fn geometry_value_text(property: geometry::Property, value: f64) -> String {
+    let amount = geometry_amount(property, value);
+    match property {
+        geometry::Property::Straighten => gettext_f(
+            // Translators: Angle shown on the straighten button, {} is a number like "-3"; keep the degree sign
+            "{}°",
+            [signed_number(amount, false)],
+        ),
+        _ => signed_number(amount, true),
+    }
+}
+
+/// Accessible name of a geometry button, like "Straighten, −3 degrees"
+fn geometry_accessible_label(property: geometry::Property, value: f64) -> String {
+    let amount = geometry_amount(property, value);
+    match property {
+        geometry::Property::Straighten => gettext_f(
+            // Translators: Accessible name of the straighten button, {} is the angle
+            "Straighten, {} degrees",
+            [signed_number(amount, false)],
+        ),
+        geometry::Property::Vertical => gettext_f(
+            // Translators: Accessible name of the vertical perspective button, {} is the amount
+            "Vertical perspective, {}",
+            [signed_number(amount, true)],
+        ),
+        geometry::Property::Horizontal => gettext_f(
+            // Translators: Accessible name of the horizontal perspective button, {} is the amount
+            "Horizontal perspective, {}",
+            [signed_number(amount, true)],
+        ),
+    }
+}
 
 fn aspect_ratio_label(aspect_ratio: LpAspectRatio) -> String {
     match aspect_ratio {
@@ -99,11 +184,44 @@ mod imp {
         #[template_child]
         pub(super) size_label: TemplateChild<gtk::Label>,
         #[template_child]
-        aspect_button: TemplateChild<gtk::MenuButton>,
+        aspect_button: TemplateChild<gtk::ToggleButton>,
         #[template_child]
         aspect_content: TemplateChild<adw::ButtonContent>,
         #[template_child]
-        aspect_scroll: TemplateChild<gtk::ScrolledWindow>,
+        geometry_page: TemplateChild<gtk::Box>,
+        #[template_child]
+        aspect_page: TemplateChild<gtk::Box>,
+        #[template_child]
+        action_row: TemplateChild<gtk::CenterBox>,
+        #[template_child]
+        aspect_ratio_buttons: TemplateChild<gtk::Box>,
+        #[template_child]
+        geometry_slider: TemplateChild<LpCenterSlider>,
+        #[template_child]
+        geometry_straighten: TemplateChild<gtk::ToggleButton>,
+        #[template_child]
+        geometry_straighten_name: TemplateChild<gtk::Label>,
+        #[template_child]
+        geometry_straighten_value: TemplateChild<gtk::Label>,
+        #[template_child]
+        geometry_vertical: TemplateChild<gtk::ToggleButton>,
+        #[template_child]
+        geometry_vertical_name: TemplateChild<gtk::Label>,
+        #[template_child]
+        geometry_vertical_value: TemplateChild<gtk::Label>,
+        #[template_child]
+        geometry_horizontal: TemplateChild<gtk::ToggleButton>,
+        #[template_child]
+        geometry_horizontal_name: TemplateChild<gtk::Label>,
+        #[template_child]
+        geometry_horizontal_value: TemplateChild<gtk::Label>,
+        /// Slider shown for straightening or perspective
+        geometry_property: Cell<Option<geometry::Property>>,
+        geometry_handler: OnceCell<glib::SignalHandlerId>,
+        /// Fades between the geometry rows and the aspect ratios
+        top_fade: PageFade,
+        /// Hides the grid shown while the geometry changes
+        grid_timeout: RefCell<Option<glib::SourceId>>,
 
         #[property(get, construct_only)]
         original_image: OnceCell<LpImage>,
@@ -115,14 +233,19 @@ mod imp {
         #[property(get, set = Self::set_mode, explicit_notify)]
         mode: RefCell<String>,
 
-        /// Markup tool in use, and the width each tool used last
+        /// Markup tool in use, and the size factor each tool used last
         tool_name: RefCell<String>,
-        tool_widths: RefCell<std::collections::HashMap<String, String>>,
+        tool_sizes: RefCell<std::collections::HashMap<String, f64>>,
 
         /// Pointer position, for zooming with the scroll wheel
         pointer: Cell<Option<(f64, f64)>>,
         /// Zoom level when a pinch started
         pinch_zoom: Cell<f64>,
+        /// Zooms the picture so the crop fills the view
+        pub(super) crop_zoom: OnceCell<adw::TimedAnimation>,
+        /// Zoom and image point at the middle of the view, at the start and
+        /// end of `crop_zoom`
+        crop_zoom_path: Cell<((f64, (f64, f64)), (f64, (f64, f64)))>,
     }
 
     #[glib::object_subclass]
@@ -243,7 +366,41 @@ mod imp {
                 "orientation",
             ));
 
+            let geometry_action = gio::SimpleAction::new_stateful(
+                "geometry",
+                Some(glib::VariantTy::STRING),
+                &geometry_name(geometry::Property::Straighten).to_variant(),
+            );
+            geometry_action.connect_activate(glib::clone!(
+                #[weak]
+                obj,
+                move |action, target| {
+                    if let Some(name) = target.and_then(|x| x.get::<String>())
+                        && let Some(property) = geometry_from_name(&name)
+                    {
+                        action.set_state(&name.to_variant());
+                        let imp = obj.imp();
+                        imp.geometry_property.set(Some(property));
+                        imp.sync_geometry();
+                        if let Some(edit_window) = obj.try_edit_window() {
+                            edit_window.end_coalescing();
+                        }
+                    }
+                }
+            ));
+            actions.add_action(&geometry_action);
+
             obj.insert_action_group("edit-crop", Some(&actions));
+
+            self.geometry_property
+                .set(Some(geometry::Property::Straighten));
+            let handler = self.geometry_slider.connect_value_notify(glib::clone!(
+                #[weak]
+                obj,
+                move |slider| obj.imp().geometry_slider_changed(slider.value())
+            ));
+            self.geometry_handler.set(handler).unwrap();
+            self.sync_geometry();
 
             // Matches the tool action's first state
             self.tool_name.replace("brush".to_owned());
@@ -264,15 +421,16 @@ mod imp {
                         let imp = obj.imp();
                         imp.markup_canvas.set_tool(tool);
                         imp.markup.set_tool(tool);
-                        // Each tool keeps its own width or size
                         imp.tool_name.replace(name.clone());
-                        let width = imp
-                            .tool_widths
+                        imp.sync_markup_metrics();
+                        // Each tool keeps its own width or size
+                        let factor = imp
+                            .tool_sizes
                             .borrow()
                             .get(&name)
-                            .cloned()
-                            .unwrap_or_else(|| "m".to_owned());
-                        let _ = obj.activate_action("edit-markup.width", Some(&width.to_variant()));
+                            .copied()
+                            .unwrap_or_else(|| factor_from_slider(0.));
+                        let _ = obj.activate_action("edit-markup.size", Some(&factor.to_variant()));
                     }
                 }
             ));
@@ -294,6 +452,10 @@ mod imp {
                         let imp = obj.imp();
                         imp.markup_canvas.set_color(color);
                         imp.markup.show_color(&name);
+                        // The custom colour card stays open while it is used
+                        if name != "custom" {
+                            imp.markup.close_colors();
+                        }
                     }
                 }
             ));
@@ -310,33 +472,36 @@ mod imp {
                 move |action, target| {
                     if let Some(name) = target.and_then(|x| x.get::<String>()) {
                         obj.imp().markup_canvas.set_filled(name == "filled");
+                        obj.imp().markup.show_fill(name == "filled");
                         action.set_state(&name.to_variant());
                     }
                 }
             ));
             markup_actions.add_action(&fill_action);
 
-            let width_action = gio::SimpleAction::new_stateful(
-                "width",
-                Some(glib::VariantTy::STRING),
-                &"m".to_variant(),
+            // Size factor of new shapes and text, from the slider
+            let size_action = gio::SimpleAction::new_stateful(
+                "size",
+                Some(glib::VariantTy::DOUBLE),
+                &1_f64.to_variant(),
             );
-            width_action.connect_activate(glib::clone!(
+            size_action.connect_activate(glib::clone!(
                 #[weak]
                 obj,
                 move |action, target| {
-                    if let Some(name) = target.and_then(|x| x.get::<String>())
-                        && let Some(factor) = width_from_name(&name)
+                    if let Some(factor) = target.and_then(|x| x.get::<f64>())
+                        && factor > 0.
                     {
                         let imp = obj.imp();
                         imp.markup_canvas.set_size_factor(factor);
-                        action.set_state(&name.to_variant());
+                        action.set_state(&factor.to_variant());
+                        imp.markup.show_size(factor);
                         let tool = imp.tool_name.borrow().clone();
-                        imp.tool_widths.borrow_mut().insert(tool, name);
+                        imp.tool_sizes.borrow_mut().insert(tool, factor);
                     }
                 }
             ));
-            markup_actions.add_action(&width_action);
+            markup_actions.add_action(&size_action);
 
             let font_action = gio::SimpleAction::new_stateful(
                 "font",
@@ -352,36 +517,101 @@ mod imp {
                     {
                         obj.imp().markup_canvas.set_font(font);
                         action.set_state(&name.to_variant());
+                        obj.imp().markup.show_font(&name);
                     }
                 }
             ));
             markup_actions.add_action(&font_action);
+
+            let text_background_action =
+                gio::SimpleAction::new_stateful("text-background", None, &false.to_variant());
+            text_background_action.connect_activate(glib::clone!(
+                #[weak]
+                obj,
+                move |action, _| {
+                    let background = !action
+                        .state()
+                        .and_then(|x| x.get::<bool>())
+                        .unwrap_or(false);
+                    obj.imp().markup_canvas.set_text_background(background);
+                    action.set_state(&background.to_variant());
+                }
+            ));
+            markup_actions.add_action(&text_background_action);
+
+            let pick_color_action = gio::SimpleAction::new("pick-color", None);
+            pick_color_action.connect_activate(glib::clone!(
+                #[weak]
+                obj,
+                move |_, _| obj.imp().markup_canvas.start_color_pick()
+            ));
+            markup_actions.add_action(&pick_color_action);
+
+            // Colour taken from the image, as hex
+            let picked_color_action =
+                gio::SimpleAction::new("picked-color", Some(glib::VariantTy::STRING));
+            picked_color_action.connect_activate(glib::clone!(
+                #[weak]
+                obj,
+                move |_, target| {
+                    if let Some(color) = target
+                        .and_then(|x| x.get::<String>())
+                        .and_then(|x| color_from_hex(&x))
+                    {
+                        obj.imp().markup.set_custom_color(color);
+                    }
+                }
+            ));
+            markup_actions.add_action(&picked_color_action);
             obj.insert_action_group("edit-markup", Some(&markup_actions));
             self.markup.show_color("blue");
-            // Keep a gap to the pill below
-            if let Some(popover) = self.aspect_button.popover() {
-                popover.set_offset(0, -10);
-                // Centred over the whole pill and never wider than the window
-                popover.connect_show(glib::clone!(
-                    #[weak]
-                    obj,
-                    move |popover| {
-                        let imp = obj.imp();
-                        let button = imp.aspect_button.upcast_ref::<gtk::Widget>();
-                        if let Some(pill) = button.parent()
-                            && let Some(bounds) = pill.compute_bounds(button)
-                        {
-                            popover.set_pointing_to(Some(&gdk::Rectangle::new(
-                                bounds.x() as i32,
-                                bounds.y() as i32,
-                                bounds.width() as i32,
-                                bounds.height() as i32,
-                            )));
-                        }
-                        let window_width = obj.width();
-                        imp.aspect_scroll.set_max_content_width((window_width - 32).max(120));
+            // The aspect chip swaps the geometry controls for the ratios
+            self.top_fade.show_now(
+                &[
+                    self.geometry_page.clone().upcast(),
+                    self.aspect_page.clone().upcast(),
+                ],
+                Some(0),
+            );
+            self.aspect_button.connect_toggled(glib::clone!(
+                #[weak]
+                obj,
+                move |button| obj.imp().show_aspect(button.is_active())
+            ));
+            // Escape closes the ratios or the markup pills before it would close the editor
+            // (the editor asks `close_transient` first as well, for when the focus is elsewhere)
+            let escape = gtk::EventControllerKey::new();
+            escape.connect_key_pressed(glib::clone!(
+                #[weak]
+                obj,
+                #[upgrade_or]
+                glib::Propagation::Proceed,
+                move |_, key, _, modifiers| {
+                    if key == gdk::Key::Escape
+                        && modifiers.is_empty()
+                        && obj.imp().close_transient()
+                    {
+                        glib::Propagation::Stop
+                    } else {
+                        glib::Propagation::Proceed
                     }
-                ));
+                }
+            ));
+            obj.add_controller(escape);
+
+            // Picking the ratio that is already chosen goes back as well
+            let mut child = self.aspect_ratio_buttons.first_child();
+            while let Some(widget) = child {
+                if let Some(button) = widget.downcast_ref::<gtk::ToggleButton>()
+                    && button.action_name().as_deref() == Some("edit-crop.aspect-ratio")
+                {
+                    button.connect_clicked(glib::clone!(
+                        #[weak]
+                        obj,
+                        move |_| obj.imp().close_aspect()
+                    ));
+                }
+                child = widget.next_sibling();
             }
 
             self.selection.connect_aspect_ratio_notify(glib::clone!(
@@ -391,7 +621,8 @@ mod imp {
                     let imp = obj.imp();
                     imp.aspect_content
                         .set_label(&aspect_ratio_label(selection.aspect_ratio()));
-                    imp.aspect_button.popdown();
+                    // Picking a ratio goes back to the geometry controls
+                    imp.close_aspect();
                 }
             ));
 
@@ -406,13 +637,13 @@ mod imp {
                 );
             }
 
-            obj.action_set_enabled("edit-crop.reset", false);
+            obj.imp().set_reset_enabled(false);
 
             self.selection.connect_cropped_notify(glib::clone!(
                 #[weak]
                 obj,
                 move |_| {
-                    obj.action_set_enabled("edit-crop.reset", obj.imp().is_reset_enabled());
+                    obj.imp().set_reset_enabled(obj.imp().is_reset_enabled());
                 }
             ));
 
@@ -431,6 +662,19 @@ mod imp {
     }
 
     impl WidgetImpl for LpEditCrop {
+        /// The pills float over the picture, so the window never gets
+        /// smaller than them plus some picture
+        fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            let (minimum, natural, _, _) = self.parent_measure(orientation, for_size);
+            let pills = self.pills_size(orientation, -1);
+            let needed = match orientation {
+                gtk::Orientation::Horizontal => pills + 24,
+                // Undo pill above, margin below and room for the picture
+                _ => pills + 12 + 60 + 120,
+            };
+            (minimum.max(needed), natural.max(needed), -1, -1)
+        }
+
         fn root(&self) {
             self.parent_root();
             let obj = self.obj();
@@ -442,6 +686,71 @@ mod imp {
     impl BinImpl for LpEditCrop {}
 
     impl LpEditCrop {
+        /// Room the pills at the bottom ask for. The aspect ratios and the
+        /// markup pills scroll, so they never widen the window past 336 px;
+        /// markup always reserves its options row, so the picture does not
+        /// jump when the row shows or hides.
+        fn pills_size(&self, orientation: gtk::Orientation, for_size: i32) -> i32 {
+            match self.mode_stack.visible_child_name().as_deref() {
+                Some("crop") if orientation == gtk::Orientation::Horizontal => {
+                    let (_, geometry, _, _) = self.geometry_page.measure(orientation, -1);
+                    let (_, action, _, _) = self.action_row.measure(orientation, -1);
+                    geometry.max(action)
+                }
+                Some("markup") if orientation == gtk::Orientation::Horizontal => {
+                    let (_, natural, _, _) = self.mode_stack.measure(orientation, -1);
+                    natural.min(336)
+                }
+                Some("markup") => self.markup.reserved_height(for_size),
+                _ => self.mode_stack.measure(orientation, for_size).1,
+            }
+        }
+
+        /// Goes back from the aspect ratios to the geometry controls. The
+        /// focus follows if it was on a ratio, which is about to fade out.
+        fn close_aspect(&self) {
+            let inside = self
+                .obj()
+                .root()
+                .and_then(|root| root.focus())
+                .is_some_and(|focus| focus.is_ancestor(&*self.aspect_page));
+            if inside {
+                self.aspect_button.grab_focus();
+            }
+            self.aspect_button.set_active(false);
+        }
+
+        /// Closes the aspect ratios, the markup options or colours, or the
+        /// colour picking, whichever is open. Returns whether one was.
+        pub(super) fn close_transient(&self) -> bool {
+            if self.aspect_button.is_active() {
+                self.aspect_button.set_active(false);
+                self.aspect_button.grab_focus();
+                true
+            } else if self.mode.borrow().as_str() == "markup" {
+                if self.markup.close_pills() {
+                    true
+                } else if self.markup_canvas.is_picking() {
+                    self.markup_canvas.cancel_color_pick();
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        }
+
+        /// Tells the markup options the size of new shapes and the zoom
+        pub(super) fn sync_markup_metrics(&self) {
+            let name = self.tool_name.borrow().clone();
+            if let Some(tool) = tool_from_name(&name)
+                && let Some((base, scale)) = self.markup_canvas.size_metrics(tool)
+            {
+                self.markup.set_metrics(base, scale);
+            }
+        }
+
         /// Pinch, Ctrl+scroll and scrolling move the picture in Adjust and
         /// Markup; Crop always shows the whole picture
         fn setup_zoom(&self) {
@@ -456,7 +765,14 @@ mod imp {
                 adjustment.connect_value_changed(glib::clone!(
                     #[weak]
                     obj,
-                    move |_| obj.imp().markup_canvas.queue_draw()
+                    move |_| {
+                        let imp = obj.imp();
+                        imp.markup_canvas.queue_draw();
+                        // The selection and its grid are placed from the
+                        // scroll position
+                        imp.selection.queue_allocate();
+                        imp.selection.queue_draw();
+                    }
                 ));
             }
             self.image.connect_zoom_notify(glib::clone!(
@@ -465,6 +781,8 @@ mod imp {
                 move |_| {
                     let imp = obj.imp();
                     imp.markup_canvas.queue_draw();
+                    // The previews show the thickness on the screen
+                    imp.sync_markup_metrics();
                     // Best fit changes when the pills change height
                     if !imp.selection.cropped() {
                         imp.selection.reset();
@@ -486,9 +804,10 @@ mod imp {
                     if widget == imp.mode_stack.upcast_ref::<gtk::Widget>() {
                         // The stack is centred, so it gets its natural size
                         let (_, width, _, _) = widget.measure(gtk::Orientation::Horizontal, -1);
-                        let (_, pills, _, _) = widget
-                            .measure(gtk::Orientation::Vertical, width.min(canvas.width()));
-                        imp.image.set_fit_insets((18., 60., 18., pills as f64 + 12.));
+                        let pills =
+                            imp.pills_size(gtk::Orientation::Vertical, width.min(canvas.width()));
+                        imp.image
+                            .set_fit_insets((18., 60., 18., pills as f64 + 12.));
                     }
                     None
                 }
@@ -507,9 +826,8 @@ mod imp {
             ));
             self.canvas.add_controller(motion);
 
-            let scroll = gtk::EventControllerScroll::new(
-                gtk::EventControllerScrollFlags::BOTH_AXES,
-            );
+            let scroll =
+                gtk::EventControllerScroll::new(gtk::EventControllerScrollFlags::BOTH_AXES);
             scroll.set_propagation_phase(gtk::PropagationPhase::Capture);
             scroll.connect_scroll(glib::clone!(
                 #[weak]
@@ -527,13 +845,10 @@ mod imp {
                 obj,
                 move |gesture, _| {
                     let imp = obj.imp();
-                    if imp.zoomable() {
-                        // Stops the markup tools from drawing with two fingers
-                        gesture.set_state(gtk::EventSequenceState::Claimed);
-                        imp.pinch_zoom.set(imp.image.zoom());
-                    } else {
-                        gesture.set_state(gtk::EventSequenceState::Denied);
-                    }
+                    // Stops the markup tools from drawing with two fingers
+                    gesture.set_state(gtk::EventSequenceState::Claimed);
+                    imp.stop_crop_zoom();
+                    imp.pinch_zoom.set(imp.image.zoom());
                 }
             ));
             pinch.connect_scale_changed(glib::clone!(
@@ -558,13 +873,16 @@ mod imp {
             })
         }
 
-        pub(super) fn zoomable(&self) -> bool {
-            self.mode.borrow().as_str() != "crop"
+        pub(super) fn stop_crop_zoom(&self) {
+            if let Some(animation) = self.crop_zoom.get() {
+                animation.pause();
+            }
         }
 
         /// Zooms with the image point under `position` staying in place,
         /// never below best fit
         fn zoom_at(&self, zoom: f64, position: (f64, f64)) {
+            self.stop_crop_zoom();
             let zoom = zoom.max(self.image.best_fit_zoom());
             self.image.zoom_at(zoom, position);
         }
@@ -575,14 +893,17 @@ mod imp {
             dx: f64,
             dy: f64,
         ) -> glib::Propagation {
-            if !self.zoomable() || self.pointer_over_pills() {
+            if self.pointer_over_pills() {
                 return glib::Propagation::Proceed;
             }
 
             let wheel = controller.unit() == gdk::ScrollUnit::Wheel;
-            if controller
-                .current_event_state()
-                .contains(gdk::ModifierType::CONTROL_MASK)
+            // In the crop view the mouse wheel zooms, like in the viewer
+            let crop_wheel = wheel && self.mode.borrow().as_str() == "crop";
+            if crop_wheel
+                || controller
+                    .current_event_state()
+                    .contains(gdk::ModifierType::CONTROL_MASK)
             {
                 let factor = if wheel {
                     1.25_f64.powf(-dy)
@@ -631,6 +952,102 @@ mod imp {
                 self.add_operation(Operation::Clip((x, y, width, height)));
 
                 self.reset_selection();
+                self.zoom_best_fit();
+            }
+        }
+
+        /// Middle of the space the pills and the undo pill leave free
+        fn view_center(&self) -> (f64, f64) {
+            let (left, top, right, bottom) = self.image.fit_insets();
+            (
+                left + (self.image.width() as f64 - left - right) / 2.,
+                top + (self.image.height() as f64 - top - bottom) / 2.,
+            )
+        }
+
+        /// Zoom and image point at the middle of the view
+        fn view_state(&self) -> (f64, (f64, f64)) {
+            (
+                self.image.zoom(),
+                self.image.widget_to_img_coord(self.view_center()),
+            )
+        }
+
+        /// Shows the image point `point` at the middle of the view
+        fn show_view_state(&self, (zoom, point): (f64, (f64, f64))) {
+            let center = self.view_center();
+            self.image
+                .zoom_at(zoom.max(self.image.best_fit_zoom()), center);
+            let (x, y) = self.image.img_to_widget_coord(point);
+            let hadj = self.image.hadj();
+            let vadj = self.image.vadj();
+            hadj.set_value(
+                (hadj.value() + x - center.0).clamp(0., (hadj.upper() - hadj.page_size()).max(0.)),
+            );
+            vadj.set_value(
+                (vadj.value() + y - center.1).clamp(0., (vadj.upper() - vadj.page_size()).max(0.)),
+            );
+        }
+
+        fn crop_zoom(&self) -> &adw::TimedAnimation {
+            self.crop_zoom.get_or_init(|| {
+                let obj = self.obj();
+                adw::TimedAnimation::builder()
+                    .duration(250)
+                    .value_from(0.)
+                    .value_to(1.)
+                    .easing(adw::Easing::EaseOutCubic)
+                    .widget(&*obj)
+                    .target(&adw::CallbackAnimationTarget::new(glib::clone!(
+                        #[weak]
+                        obj,
+                        move |t| {
+                            let imp = obj.imp();
+                            let ((zoom0, (x0, y0)), (zoom1, (x1, y1))) = imp.crop_zoom_path.get();
+                            // Even steps in zoom feel even
+                            let zoom = zoom0 * (zoom1 / zoom0).powf(t);
+                            imp.show_view_state((zoom, (x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)));
+                        }
+                    )))
+                    .build()
+            })
+        }
+
+        /// Zooms so the crop selection fills the view, or back to the whole
+        /// picture without one
+        pub(super) fn zoom_to_crop(&self) {
+            if self.mode.borrow().as_str() != "crop" {
+                return;
+            }
+            let Some((x, y, width, height)) = self.selection.crop_area_image_coord() else {
+                self.zoom_best_fit();
+                return;
+            };
+            let (left, top, right, bottom) = self.image.fit_insets();
+            let available_width = self.image.width() as f64 - left - right;
+            let available_height = self.image.height() as f64 - top - bottom;
+            let scale = self.image.img_to_draw_coord((1., 1.)).0;
+            if width == 0 || height == 0 || scale <= 0. {
+                return;
+            }
+            let fill = (available_width / width as f64).min(available_height / height as f64);
+            let zoom = self.image.zoom() * fill / scale;
+            let target = (
+                zoom.max(self.image.best_fit_zoom()),
+                (x as f64 + width as f64 / 2., y as f64 + height as f64 / 2.),
+            );
+            self.crop_zoom_path.set((self.view_state(), target));
+            let animation = self.crop_zoom();
+            animation.pause();
+            animation.play();
+        }
+
+        pub(super) fn zoom_best_fit(&self) {
+            if let Some(animation) = self.crop_zoom.get() {
+                animation.pause();
+            }
+            if !self.image.is_best_fit() {
+                self.image.zoom_best_fit();
             }
         }
 
@@ -671,6 +1088,7 @@ mod imp {
 
             obj.edit_window().reset_crop_view();
             self.reset_selection();
+            self.zoom_best_fit();
 
             let res = self.obj().activate_action(
                 "edit-crop.aspect-ratio",
@@ -693,7 +1111,7 @@ mod imp {
                 tracing::error!("Failed to call action edit-crop.orientation: {err}");
             }
 
-            self.obj().action_set_enabled("edit-crop.reset", false);
+            self.set_reset_enabled(false);
 
             Ok(())
         }
@@ -710,13 +1128,126 @@ mod imp {
                 // Back to the set of hopefully working operations
                 edit_window.discard_last_change();
             } else {
-                obj.action_set_enabled("edit-crop.reset", true);
+                obj.imp().set_reset_enabled(true);
             }
+        }
+
+        /// Shows the straightening or perspective of the selected slider,
+        /// as seen after rotating and flipping
+        pub(super) fn sync_geometry(&self) {
+            let Some(property) = self.geometry_property.get() else {
+                return;
+            };
+            let edit_window = self.obj().try_edit_window();
+            let view = edit_window
+                .as_ref()
+                .map(|x| x.geometry().to_view(x.operations().as_deref()))
+                .unwrap_or_default();
+
+            let value = view.get(property);
+            let handler = self.geometry_handler.get().unwrap();
+            self.geometry_slider.block_signal(handler);
+            self.geometry_slider.set_value(value);
+            self.geometry_slider.unblock_signal(handler);
+
+            for (button, name, label, property) in [
+                (
+                    &*self.geometry_straighten,
+                    &*self.geometry_straighten_name,
+                    &*self.geometry_straighten_value,
+                    geometry::Property::Straighten,
+                ),
+                (
+                    &*self.geometry_vertical,
+                    &*self.geometry_vertical_name,
+                    &*self.geometry_vertical_value,
+                    geometry::Property::Vertical,
+                ),
+                (
+                    &*self.geometry_horizontal,
+                    &*self.geometry_horizontal_name,
+                    &*self.geometry_horizontal_value,
+                    geometry::Property::Horizontal,
+                ),
+            ] {
+                let value = view.get(property);
+                let checked = self.geometry_property.get() == Some(property);
+                name.set_label(&geometry_short_name(property));
+                name.set_visible(checked);
+                label.set_label(&geometry_value_text(property, value));
+                if geometry_amount(property, value) == 0 {
+                    label.add_css_class("dimmed");
+                } else {
+                    label.remove_css_class("dimmed");
+                }
+                button.update_property(&[gtk::accessible::Property::Label(
+                    &geometry_accessible_label(property, value),
+                )]);
+                if checked {
+                    self.geometry_slider
+                        .update_relation(&[gtk::accessible::Relation::LabelledBy(&[
+                            button.upcast_ref::<gtk::Accessible>(),
+                        ])]);
+                }
+            }
+        }
+
+        fn geometry_slider_changed(&self, value: f64) {
+            let Some(property) = self.geometry_property.get() else {
+                return;
+            };
+            let obj = self.obj();
+            let Some(edit_window) = obj.try_edit_window() else {
+                return;
+            };
+
+            let operations = edit_window.operations();
+            let mut view = edit_window.geometry().to_view(operations.as_deref());
+            view.set(property, value);
+            let geometry = Geometry::from_view(view, operations.as_deref());
+            edit_window.change_geometry(geometry, Some(property));
+
+            // A grid helps to line things up while the slider moves
+            self.selection.set_grid(true);
+            if let Some(source) = self.grid_timeout.take() {
+                source.remove();
+            }
+            let source = glib::timeout_add_local_once(
+                std::time::Duration::from_millis(800),
+                glib::clone!(
+                    #[weak]
+                    obj,
+                    move || {
+                        let imp = obj.imp();
+                        imp.grid_timeout.take();
+                        imp.selection.set_grid(false);
+                    }
+                ),
+            );
+            self.grid_timeout.replace(Some(source));
+        }
+
+        /// Enables "Reset"
+        pub(super) fn set_reset_enabled(&self, enabled: bool) {
+            self.obj().action_set_enabled("edit-crop.reset", enabled);
+        }
+
+        /// Fades between the geometry controls and the aspect ratios
+        fn show_aspect(&self, show: bool) {
+            self.top_fade.show(
+                &[
+                    self.geometry_page.clone().upcast(),
+                    self.aspect_page.clone().upcast(),
+                ],
+                Some(usize::from(show)),
+                || {},
+            );
         }
 
         pub(super) fn is_reset_enabled(&self) -> bool {
             let edit_window = self.obj().edit_window();
             edit_window.operations().is_some()
+                || !edit_window.geometry().is_identity()
                 || edit_window.resize().is_some()
                 || self.selection.cropped()
         }
@@ -777,9 +1308,11 @@ mod imp {
                 );
                 self.image.zoom_at(self.image.best_fit_zoom(), center);
             }
+            // A crop at the picture's edge can still be zoomed to the middle
+            self.image.set_overscroll(is_crop);
             self.size_label.set_visible(is_crop);
             if !is_crop {
-                self.aspect_button.popdown();
+                self.aspect_button.set_active(false);
             }
             self.selection.set_visible(is_crop);
             self.selection.set_can_target(is_crop);
@@ -787,6 +1320,7 @@ mod imp {
             self.markup_canvas.set_can_target(is_markup);
             self.markup_canvas.set_focusable(is_markup);
             self.markup_canvas.clear_selection();
+            self.markup_canvas.cancel_color_pick();
             for action in [
                 "edit-crop.apply-crop",
                 "edit-crop.mirror-horizontally",
@@ -799,7 +1333,7 @@ mod imp {
             }
             // The mode is first set while the widget is constructed
             let reset_enabled = obj.try_edit_window().is_some() && self.is_reset_enabled();
-            obj.action_set_enabled("edit-crop.reset", is_crop && reset_enabled);
+            self.set_reset_enabled(is_crop && reset_enabled);
 
             if self.mode_stack.child_by_name(&mode).is_some() {
                 self.mode_stack.set_visible_child_name(&mode);
@@ -807,6 +1341,10 @@ mod imp {
 
             if mode == "adjust" {
                 self.adjust.sync();
+            }
+            if is_markup && obj.try_edit_window().is_some() {
+                // The picture can have another size after cropping
+                self.sync_markup_metrics();
             }
 
             if let Some(edit_window) = obj.try_edit_window() {
@@ -852,6 +1390,22 @@ impl LpEditCrop {
         self.imp().apply_crop();
     }
 
+    /// Zooms so the crop selection fills the view
+    pub fn zoom_to_crop(&self) {
+        self.imp().zoom_to_crop();
+    }
+
+    /// Closes the open pill (aspect ratios, markup options or colours) or
+    /// colour picking, if there is one. Returns whether one was closed.
+    pub fn close_transient(&self) -> bool {
+        self.imp().close_transient()
+    }
+
+    /// Stops zooming to the crop, for example when the selection is dragged
+    pub fn stop_crop_zoom(&self) {
+        self.imp().stop_crop_zoom();
+    }
+
     pub fn image(&self) -> LpImage {
         self.imp().image.clone()
     }
@@ -859,9 +1413,7 @@ impl LpEditCrop {
     /// Zooms in or out a step, or back to best fit, outside Crop
     pub fn zoom_step(&self, direction: i32) {
         let imp = self.imp();
-        if !imp.zoomable() {
-            return;
-        }
+        imp.stop_crop_zoom();
         match direction {
             0 => imp.image.zoom_best_fit(),
             d if d > 0 => imp.image.zoom_in_center(),
@@ -900,20 +1452,23 @@ impl LpEditCrop {
         }
         imp.size_label.set_label(&label);
 
-        self.action_set_enabled(
-            "edit-crop.reset",
-            self.mode() == "crop" && imp.is_reset_enabled(),
-        );
+        imp.set_reset_enabled(self.mode() == "crop" && imp.is_reset_enabled());
+    }
+
+    /// Updates the geometry controls after the geometry, or the rotations
+    /// and flips it is seen through, changed
+    pub fn geometry_changed(&self) {
+        let imp = self.imp();
+        imp.sync_geometry();
+        imp.set_reset_enabled(self.mode() == "crop" && imp.is_reset_enabled());
     }
 
     /// Updates controls after undo or redo
     pub fn state_restored(&self) {
         let imp = self.imp();
         imp.adjust.sync();
+        imp.sync_geometry();
         imp.markup_canvas.queue_draw();
-        self.action_set_enabled(
-            "edit-crop.reset",
-            self.mode() == "crop" && imp.is_reset_enabled(),
-        );
+        imp.set_reset_enabled(self.mode() == "crop" && imp.is_reset_enabled());
     }
 }

@@ -1,5 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <interface>
+  <menu id="set_menu">
+    <section>
+      <item>
+        <attribute name="label" translatable="yes">_Open With…</attribute>
+        <attribute name="action">win.open-with</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Move To…</attribute>
+        <attribute name="action">win.move-set</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Copy To…</attribute>
+        <attribute name="action">win.copy-set</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">Create _Archive…</attribute>
+        <attribute name="action">win.archive-set</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Print…</attribute>
+        <attribute name="action">win.print</attribute>
+      </item>
+    </section>
+  </menu>
   <menu id="primary_menu">
     <section>
       <item>
@@ -66,6 +90,43 @@
         <child>
           <object class="GtkShortcutController" id="shortcut_controller">
             <property name="scope">global</property>
+          </object>
+        </child>
+        <child type="bottom">
+          <object class="GtkRevealer" id="set_bar">
+            <property name="transition-type">slide-up</property>
+            <property name="reveal-child" bind-source="image_view" bind-property="multiple" bind-flags="sync-create" />
+            <property name="child">
+              <object class="GtkCenterBox">
+                <property name="margin-bottom">12</property>
+                <property name="margin-top">6</property>
+                <style>
+                  <class name="set-bar" />
+                </style>
+                <property name="center-widget">
+                  <object class="LpThumbnailStrip" id="thumbnail_strip">
+                    <style>
+                      <class name="osd-pill" />
+                    </style>
+                  </object>
+                </property>
+                <property name="end-widget">
+                  <object class="GtkMenuButton" id="set_menu_button">
+                    <property name="icon-name">glance-more-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Actions for All Images</property>
+                    <property name="menu-model">set_menu</property>
+                    <property name="direction">up</property>
+                    <property name="valign">center</property>
+                    <property name="margin-end">12</property>
+                    <style>
+                      <class name="osd-pill" />
+                      <class name="circular" />
+                      <class name="flat" />
+                    </style>
+                  </object>
+                </property>
+              </object>
+            </property>
           </object>
         </child>
         <child type="top">

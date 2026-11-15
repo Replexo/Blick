@@ -1,7 +1,9 @@
 # Maintainer: Replexo <196697396+Replexo@users.noreply.github.com>
-pkgname=glance
-pkgver=1.1
+pkgname=glance-viewer
+pkgver=1.2
 pkgrel=1
+conflicts=('glance')
+replaces=()
 options=('!debug')
 pkgdesc='View and edit images, based on GNOME Loupe'
 arch=('x86_64' 'aarch64')
@@ -17,7 +19,7 @@ optdepends=('tesseract-data-spa: Spanish text recognition'
             'tesseract-data-pol: Polish text recognition'
             'tesseract-data-tur: Turkish text recognition')
 makedepends=('git' 'meson' 'cargo' 'clang' 'itstool' 'appstream')
-source=("git+$url.git#tag=v$pkgver")
+source=("$pkgname::git+$url.git#tag=v$pkgver")
 sha256sums=('SKIP')
 
 build() {

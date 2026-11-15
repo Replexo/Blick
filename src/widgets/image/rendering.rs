@@ -129,7 +129,8 @@ impl WidgetImpl for imp::LpImage {
             (snapshot.clone(), render_options)
         };
 
-        if self.operations.borrow().is_some() {
+        // Straightening is drawn with the operations
+        if self.operations.borrow().is_some() || !self.geometry.get().is_identity() {
             let tmp_snapshot = gtk::Snapshot::new();
             frame_buffer.add_to_snapshot(&tmp_snapshot, applicable_zoom, &render_options);
             if let Some(node) = tmp_snapshot.to_node() {
@@ -375,6 +376,11 @@ impl imp::LpImage {
 }
 
 impl LpImage {
+    /// Rounds to a physical pixel like the picture does, and not while it zooms
+    pub fn round_f32(&self, number: f32) -> f32 {
+        self.imp().round_f32(number)
+    }
+
     pub fn image_rendering_x(&self) -> f64 {
         let imp = self.imp();
         let widget_width = imp.widget_width();
@@ -384,14 +390,18 @@ impl LpImage {
         //
         // Round to pixel values to not have a half pixel offset to physical pixels
         // The offset would leading to a blurry output
-        imp.round_f64(left + f64::max((widget_width - imp.content_width()) / 2.0, 0.))
+        imp.round_f64(
+            left + imp.overscroll_size().0 + f64::max((widget_width - imp.content_width()) / 2.0, 0.),
+        )
     }
 
     pub fn image_rendering_y(&self) -> f64 {
         let imp = self.imp();
         let widget_height = imp.widget_height();
         let (_, top, _, _) = imp.fit_insets.get();
-        imp.round_f64(top + f64::max((widget_height - imp.content_height()) / 2.0, 0.))
+        imp.round_f64(
+            top + imp.overscroll_size().1 + f64::max((widget_height - imp.content_height()) / 2.0, 0.),
+        )
     }
 
     pub fn image_rendering_width(&self) -> f64 {

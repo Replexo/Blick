@@ -29,6 +29,7 @@ impl LpImageWindow {
         if let Some(window) = self.try_window() {
             self.image_view().controls_box_start().set_opacity(opacity);
             self.image_view().controls_box_end().set_opacity(opacity);
+            self.image_view().folder_strip().set_opacity(opacity);
 
             if self.is_headerbar_flat() && window.is_fullscreen() {
                 self.headerbar().set_opacity(opacity);
@@ -183,7 +184,8 @@ impl LpImageWindow {
             || self
                 .image_view()
                 .controls_box_end_events()
-                .contains_pointer();
+                .contains_pointer()
+            || self.image_view().folder_strip_events().contains_pointer();
 
         let headerbar_hideable = self.is_content_extended_to_top();
         let headerbar_hovered = imp.headerbar_events.contains_pointer();

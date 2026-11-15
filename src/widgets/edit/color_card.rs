@@ -151,8 +151,12 @@ mod imp {
 
     impl ObjectImpl for LpColorCard {
         fn signals() -> &'static [Signal] {
-            static SIGNALS: LazyLock<Vec<Signal>> =
-                LazyLock::new(|| vec![Signal::builder("color-changed").build()]);
+            static SIGNALS: LazyLock<Vec<Signal>> = LazyLock::new(|| {
+                vec![
+                    Signal::builder("color-changed").build(),
+                    Signal::builder("pick-requested").build(),
+                ]
+            });
             SIGNALS.as_ref()
         }
 
@@ -215,7 +219,18 @@ mod imp {
                     }
                 }
             ));
-            obj.append(&self.entry);
+            let picker = gtk::Button::from_icon_name("glance-color-picker-symbolic");
+            picker.set_tooltip_text(Some(&gettext("Pick Color From Image")));
+            picker.connect_clicked(glib::clone!(
+                #[weak]
+                obj,
+                move |_| obj.emit_by_name::<()>("pick-requested", &[])
+            ));
+
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            row.append(&self.entry);
+            row.append(&picker);
+            obj.append(&row);
 
             self.update_entry();
         }
@@ -369,6 +384,15 @@ impl LpColorCard {
     pub fn connect_color_changed<F: Fn(&Self) + 'static>(&self, f: F) -> glib::SignalHandlerId {
         self.connect_closure(
             "color-changed",
+            false,
+            glib::closure_local!(move |obj: &Self| f(obj)),
+        )
+    }
+
+    /// The user wants to take a colour from the image
+    pub fn connect_pick_requested<F: Fn(&Self) + 'static>(&self, f: F) -> glib::SignalHandlerId {
+        self.connect_closure(
+            "pick-requested",
             false,
             glib::closure_local!(move |obj: &Self| f(obj)),
         )

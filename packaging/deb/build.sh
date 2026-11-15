@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/glance_<version>_<arch>.deb inside the deb image
+# Builds dist/glance-viewer_<version>_<arch>.deb inside the deb image
 set -eu
 cd /src
 version=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
@@ -11,7 +11,9 @@ meson compile -C /tmp/build
 DESTDIR="$root" meson install -C /tmp/build
 mkdir -p "$root/DEBIAN"
 cat > "$root/DEBIAN/control" <<CONTROL
-Package: glance
+Package: glance-viewer
+Breaks: glance (<< 1.2)
+Replaces: glance (<< 1.2)
 Version: $version
 Architecture: $arch
 Maintainer: Replexo <196697396+Replexo@users.noreply.github.com>
@@ -25,4 +27,4 @@ Description: View and edit images
  markup, resizing and text recognition.
 CONTROL
 mkdir -p dist
-dpkg-deb --root-owner-group --build "$root" "dist/glance_${version}_${arch}.deb"
+dpkg-deb --root-owner-group --build "$root" "dist/glance-viewer_${version}_${arch}.deb"

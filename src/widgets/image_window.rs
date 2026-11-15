@@ -27,6 +27,7 @@
 
 mod actions;
 mod controls;
+mod set;
 
 use std::cell::{Cell, OnceCell, RefCell};
 use std::marker::PhantomData;
@@ -45,7 +46,9 @@ use crate::util::Direction;
 use crate::util::gettext::*;
 use crate::util::root::ParentWindow;
 use crate::widgets::window::ActionPartGlobal;
-use crate::widgets::{LpDragOverlay, LpImage, LpImageView, LpPropertiesView, LpTextLayer};
+use crate::widgets::{
+    LpDragOverlay, LpImage, LpImageView, LpPropertiesView, LpTextLayer, LpThumbnailStrip,
+};
 
 /// Animation duration for showing overlay buttons in milliseconds
 const SHOW_CONTROLS_ANIMATION_DURATION: u32 = 200;
@@ -88,6 +91,10 @@ mod imp {
         pub(super) status_page: TemplateChild<adw::StatusPage>,
         #[template_child]
         pub(super) image_view: TemplateChild<LpImageView>,
+        #[template_child]
+        pub(super) thumbnail_strip: TemplateChild<LpThumbnailStrip>,
+        #[template_child]
+        pub(super) set_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub(super) properties_view: TemplateChild<LpPropertiesView>,
 
@@ -132,8 +139,10 @@ mod imp {
         fn class_init(klass: &mut Self::Class) {
             Self::bind_template(klass);
 
+            LpThumbnailStrip::static_type();
             // Set up actions
             Action::init_actions(klass);
+            set::init_actions(klass);
         }
     }
 
@@ -206,6 +215,8 @@ mod imp {
                 obj,
                 move |_| obj.on_current_page_changed()
             ));
+
+            obj.setup_set();
 
             if config::UPDATE_CHECK {
                 obj.setup_updates();

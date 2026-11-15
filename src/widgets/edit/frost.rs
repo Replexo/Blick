@@ -24,6 +24,7 @@
 //! style class.
 
 use std::cell::{OnceCell, RefCell};
+use std::rc::Rc;
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -34,8 +35,9 @@ use crate::widgets::LpImage;
 const BLUR_RADIUS: f32 = 18.;
 const CLASSES: [&str; 2] = ["glance-pill", "glance-name"];
 
-/// Place of a pill in the frost's coordinates, and its opacity
-type Pane = (graphene::Rect, f64);
+/// Visible part of a pill, the whole pill (both in the frost's coordinates)
+/// and its opacity
+type Pane = (graphene::Rect, graphene::Rect, f64);
 
 mod imp {
     use super::*;
@@ -118,18 +120,21 @@ mod imp {
                 paintable.set_widget(Some(&image));
             }
 
-            for (rect, opacity) in panes {
-                let radius = rect.width().min(rect.height()) / 2.;
-                let rounded = gsk::RoundedRect::from_rect(rect, radius);
+            for (rect, whole, opacity) in panes {
+                // The ends are round even when a scrolled pill is cut off
+                let radius = whole.width().min(whole.height()) / 2.;
+                let rounded = gsk::RoundedRect::from_rect(whole, radius);
                 snapshot.push_opacity(opacity);
+                snapshot.push_clip(&rect);
                 snapshot.push_rounded_clip(&rounded);
                 snapshot.push_blur(BLUR_RADIUS as f64);
                 // Only the area the blur reaches is drawn
-                snapshot.push_clip(&rect.inset_r(-2. * BLUR_RADIUS, -2. * BLUR_RADIUS));
+                snapshot.push_clip(&whole.inset_r(-2. * BLUR_RADIUS, -2. * BLUR_RADIUS));
                 snapshot.save();
                 snapshot.translate(&graphene::Point::new(bounds.x(), bounds.y()));
                 paintable.snapshot(snapshot, bounds.width() as f64, bounds.height() as f64);
                 snapshot.restore();
+                snapshot.pop();
                 snapshot.pop();
                 snapshot.pop();
                 snapshot.pop();
@@ -195,11 +200,12 @@ fn collect_panes(
         return;
     }
     if CLASSES.iter().any(|class| widget.has_css_class(class)) {
-        if let Some(rect) = widget.compute_bounds(frost)
+        if let Some(whole) = widget.compute_bounds(frost)
+            && let Some(rect) = visible_part(widget, whole, frost, overlay)
             && rect.width() > 0.
             && rect.height() > 0.
         {
-            panes.push((rect, opacity(widget, overlay)));
+            panes.push((rect, whole, opacity(widget, overlay)));
         }
         return;
     }
@@ -208,6 +214,30 @@ fn collect_panes(
         collect_panes(&widget, frost, overlay, panes);
         child = widget.next_sibling();
     }
+}
+
+/// The part of `whole` that shows: scrolled windows between the pill and
+/// the overlay cut off what does not fit
+fn visible_part(
+    widget: &gtk::Widget,
+    whole: graphene::Rect,
+    frost: &LpFrost,
+    overlay: &gtk::Overlay,
+) -> Option<graphene::Rect> {
+    let mut rect = whole;
+    let mut current = widget.parent();
+    while let Some(parent) = current {
+        if parent == *overlay.upcast_ref::<gtk::Widget>() {
+            break;
+        }
+        if parent.is::<gtk::ScrolledWindow>()
+            && let Some(bounds) = parent.compute_bounds(frost)
+        {
+            rect = rect.intersection(&bounds)?;
+        }
+        current = parent.parent();
+    }
+    Some(rect)
 }
 
 /// Opacity of `widget` including its parents up to `overlay`, for pills
@@ -223,6 +253,100 @@ fn opacity(widget: &gtk::Widget, overlay: &gtk::Overlay) -> f64 {
         current = widget.parent();
     }
     opacity
+}
+
+/// Time to fade a page out, and then another page in
+const FADE_MS: u32 = 90;
+
+/// Shows one of several pills that sit on top of each other
+///
+/// The pills fade with their widget opacity, so [`LpFrost`] blurs them with
+/// the same strength. The old pill is gone before the new one appears, and
+/// the pills keep their size, so nothing moves.
+#[derive(Debug, Default)]
+pub struct PageFade {
+    /// The running fade, dropped when it ends so that it holds no reference
+    animation: Rc<RefCell<Option<adw::TimedAnimation>>>,
+}
+
+fn set_page_active(page: &gtk::Widget, active: bool) {
+    page.set_sensitive(active);
+    page.set_can_target(active);
+    page.update_state(&[gtk::accessible::State::Hidden(!active)]);
+}
+
+impl PageFade {
+    /// Shows `target` (or no page) at once
+    pub fn show_now(&self, pages: &[gtk::Widget], target: Option<usize>) {
+        if let Some(animation) = self.animation.take() {
+            animation.pause();
+        }
+        for (index, page) in pages.iter().enumerate() {
+            let active = Some(index) == target;
+            page.set_opacity(if active { 1. } else { 0. });
+            set_page_active(page, active);
+        }
+    }
+
+    /// Fades to `target` (or to no page). `done` runs when the fade ended.
+    pub fn show(&self, pages: &[gtk::Widget], target: Option<usize>, done: impl Fn() + 'static) {
+        // A running fade jumps to its end first
+        let running = self.animation.take();
+        if let Some(animation) = running {
+            animation.skip();
+        }
+        let Some(first) = pages.first() else {
+            return;
+        };
+
+        let start: Vec<f64> = pages.iter().map(|page| page.opacity()).collect();
+        // No page takes pointer input during the fade, so old and new never
+        // both do. The old pages stop at once, the new one is reachable by
+        // keyboard from the start.
+        for (index, page) in pages.iter().enumerate() {
+            let is_target = Some(index) == target;
+            page.set_sensitive(is_target);
+            page.set_can_target(false);
+            page.update_state(&[gtk::accessible::State::Hidden(!is_target)]);
+        }
+
+        let stepping = pages.to_vec();
+        let animation = adw::TimedAnimation::builder()
+            .widget(first)
+            .duration(2 * FADE_MS)
+            .value_from(0.)
+            .value_to(1.)
+            .easing(adw::Easing::Linear)
+            .target(&adw::CallbackAnimationTarget::new(move |progress| {
+                let (fade_out, fade_in) = if progress < 0.5 {
+                    (1. - 2. * progress, 0.)
+                } else {
+                    (0., 2. * progress - 1.)
+                };
+                for (index, page) in stepping.iter().enumerate() {
+                    let from = start[index];
+                    if Some(index) == target {
+                        page.set_opacity(from + (1. - from) * fade_in);
+                    } else {
+                        page.set_opacity(from * fade_out);
+                    }
+                }
+            }))
+            .build();
+        let finished = pages.to_vec();
+        let slot = self.animation.clone();
+        animation.connect_done(move |_| {
+            slot.take();
+            for (index, page) in finished.iter().enumerate() {
+                let active = Some(index) == target;
+                page.set_opacity(if active { 1. } else { 0. });
+                set_page_active(page, active);
+            }
+            done();
+        });
+        self.animation.replace(Some(animation.clone()));
+        animation.play();
+    }
 }
 
 glib::wrapper! {

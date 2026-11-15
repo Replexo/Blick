@@ -43,6 +43,7 @@ impl imp::LpImage {
             snapshot,
             self.applicable_zoom(),
             &initial_operations,
+            self.geometry.get(),
         )?;
 
         self.overwrite_dimensions.set(Some(new_dimensions));
@@ -83,6 +84,14 @@ impl LpImage {
         self.queue_draw();
 
         Ok(())
+    }
+}
+
+impl LpImage {
+    /// Sets the straightening and perspective shown in the preview
+    pub fn set_geometry(&self, geometry: crate::editing::geometry::Geometry) {
+        self.imp().geometry.set(geometry);
+        self.queue_draw();
     }
 }
 

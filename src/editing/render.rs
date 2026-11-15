@@ -30,12 +30,15 @@ use image::RgbaImage;
 use std::sync::Arc;
 
 use super::adjust::Adjustments;
+use super::geometry::Geometry;
 use super::markup::{self, Shape};
 use crate::deps::*;
 
 /// Edits that need the image to be decoded and encoded again
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PixelEdits {
+    /// Applied before the geometric operations
+    pub geometry: Geometry,
     pub adjustments: Adjustments,
     pub markup: Arc<Vec<Shape>>,
     /// Factor to scale the image down by, as the last step
@@ -44,7 +47,10 @@ pub struct PixelEdits {
 
 impl PixelEdits {
     pub fn is_empty(&self) -> bool {
-        self.adjustments.is_identity() && self.markup.is_empty() && self.resize.is_none()
+        self.geometry.is_identity()
+            && self.adjustments.is_identity()
+            && self.markup.is_empty()
+            && self.resize.is_none()
     }
 
     /// Applies the pixel edits to an image that already has the geometric
@@ -165,6 +171,9 @@ pub async fn render(
     let (format, width, height, data) = gio::spawn_blocking(move || {
         let mut pixels = pixels;
         let original_size = pixels.dimensions();
+        if !edits.geometry.is_identity() {
+            pixels = edits.geometry.apply(&pixels);
+        }
         if let Some(operations) = &operations {
             pixels = apply_operations(pixels, operations)?;
         }

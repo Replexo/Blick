@@ -285,6 +285,16 @@ impl LpFileModel {
         self.imp().files.borrow().get_index_of(&file.uri())
     }
 
+    /// All files, in order
+    pub fn files(&self) -> Vec<gio::File> {
+        self.imp()
+            .files
+            .borrow()
+            .values()
+            .map(|x| x.file.clone())
+            .collect()
+    }
+
     pub fn n_files(&self) -> usize {
         self.imp().files.borrow().len()
     }

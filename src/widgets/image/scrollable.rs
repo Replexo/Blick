@@ -139,15 +139,30 @@ impl imp::LpImage {
         f64::max(self.content_height() - self.widget_height(), 0.)
     }
 
-    /// Scrollable width: the image plus the fit insets
+    /// Scrollable width: the image plus the fit insets and overscroll
     pub(super) fn content_width(&self) -> f64 {
         let (left, _, right, _) = self.fit_insets.get();
-        self.image_displayed_width() + left + right
+        self.image_displayed_width() + left + right + 2. * self.overscroll_size().0
     }
 
     pub(super) fn content_height(&self) -> f64 {
         let (_, top, _, bottom) = self.fit_insets.get();
-        self.image_displayed_height() + top + bottom
+        self.image_displayed_height() + top + bottom + 2. * self.overscroll_size().1
+    }
+
+    /// Space the image can be scrolled past each edge, see `overscroll`
+    pub(super) fn overscroll_size(&self) -> (f64, f64) {
+        self.overscroll_size_for(self.obj().zoom())
+    }
+
+    /// Overscroll at `zoom`; half the view is enough to bring any image
+    /// point to the middle
+    pub(super) fn overscroll_size_for(&self, zoom: f64) -> (f64, f64) {
+        if self.overscroll.get() && zoom > self.zoom_level_best_fit() * 1.001 {
+            (self.widget_width() / 2., self.widget_height() / 2.)
+        } else {
+            (0., 0.)
+        }
     }
 }
 

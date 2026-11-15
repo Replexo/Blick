@@ -4,411 +4,250 @@
     <property name="child">
       <object class="GtkBox">
         <property name="orientation">vertical</property>
-        <property name="spacing">8</property>
+        <property name="spacing">10</property>
+        <!-- Options or colours of the tool, a pill of its own above the tools so that
+             LpFrost can blur both. They sit on top of each other (PageFade). -->
         <child>
-          <object class="GtkScrolledWindow" id="options_pill">
-            <property name="hscrollbar-policy">external</property>
-            <property name="vscrollbar-policy">never</property>
-            <property name="propagate-natural-width">true</property>
-            <property name="propagate-natural-height">true</property>
+          <object class="GtkGrid" id="slot">
+            <property name="visible">false</property>
             <property name="halign">center</property>
-            <property name="child">
-              <object class="GtkBox">
+            <child>
+              <object class="GtkScrolledWindow" id="options_page">
+                <layout>
+                  <property name="column">0</property>
+                  <property name="row">0</property>
+                </layout>
+                <property name="hscrollbar-policy">external</property>
+                <property name="vscrollbar-policy">never</property>
+                <property name="propagate-natural-width">true</property>
+                <property name="propagate-natural-height">true</property>
                 <property name="halign">center</property>
-                <property name="spacing">2</property>
-                <style>
-                  <class name="glance-pill"/>
-                </style>
-                <child>
-                  <object class="GtkBox" id="color_box">
+                <property name="child">
+                  <object class="GtkBox" id="options_pill">
                     <property name="spacing">2</property>
+                    <style>
+                      <class name="glance-pill"/>
+                    </style>
                     <child>
-                      <object class="GtkMenuButton" id="custom_button">
-                        <property name="tooltip-text" translatable="yes">Choose a Color</property>
-                        <property name="direction">up</property>
+                      <object class="GtkStack" id="preview_stack">
                         <property name="valign">center</property>
-                        <style>
-                          <class name="custom-color"/>
-                        </style>
-                        <property name="child">
-                          <object class="GtkDrawingArea" id="custom_swatch">
-                            <property name="content-width">30</property>
-                            <property name="content-height">30</property>
-                          </object>
-                        </property>
-                        <property name="popover">
-                          <object class="GtkPopover" id="color_popover">
-                            <property name="has-arrow">false</property>
-                            <style>
-                              <class name="glance-card"/>
-                            </style>
+                        <child>
+                          <object class="GtkStackPage">
+                            <property name="name">draw</property>
                             <property name="child">
-                              <object class="LpColorCard" id="color_card"/>
+                              <object class="GtkDrawingArea" id="preview">
+                                <property name="content-width">30</property>
+                                <property name="content-height">28</property>
+                              </object>
                             </property>
                           </object>
-                        </property>
+                        </child>
+                        <child>
+                          <object class="GtkStackPage">
+                            <property name="name">text</property>
+                            <property name="child">
+                              <object class="GtkLabel" id="preview_text">
+                                <property name="label">A</property>
+                                <style>
+                                  <class name="font-sans"/>
+                                </style>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkSeparator">
+                      <object class="LpCenterSlider" id="size_slider">
+                        <property name="centered">false</property>
+                        <property name="width-request">160</property>
+                        <property name="valign">center</property>
+                        <property name="tooltip-text" translatable="yes">Line Width</property>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkLabel" id="size_label">
+                        <property name="width-chars">3</property>
+                        <property name="width-request">30</property>
+                        <property name="xalign">0.5</property>
+                        <property name="label">0</property>
+                        <style>
+                          <class name="numeric"/>
+                        </style>
+                      </object>
+                    </child>
+                    <child>
+                      <object class="GtkSeparator" id="fill_sep">
+                        <property name="visible">false</property>
                         <property name="orientation">vertical</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkButton" id="swatch_blue">
-                        <property name="tooltip-text" translatable="yes">Blue</property>
-                        <property name="action-name">edit-markup.color</property>
-                        <property name="action-target">'blue'</property>
-                        <style>
-                          <class name="swatch-button"/>
-                        </style>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
+                      <object class="GtkBox" id="fill_row">
+                        <property name="visible">false</property>
+                        <property name="spacing">2</property>
+                        <child>
+                          <object class="GtkToggleButton">
+                            <property name="action-name">edit-markup.fill</property>
+                            <property name="action-target">'outline'</property>
                             <style>
-                              <class name="color-swatch"/>
-                              <class name="blue"/>
+                              <class name="text-button"/>
                             </style>
+                            <property name="child">
+                              <object class="GtkBox">
+                                <property name="spacing">6</property>
+                                <child>
+                                  <object class="GtkDrawingArea" id="fill_outline_icon">
+                                    <property name="content-width">14</property>
+                                    <property name="content-height">14</property>
+                                    <property name="valign">center</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label" translatable="yes">Outline</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </property>
                           </object>
-                        </property>
+                        </child>
+                        <child>
+                          <object class="GtkToggleButton">
+                            <property name="action-name">edit-markup.fill</property>
+                            <property name="action-target">'filled'</property>
+                            <style>
+                              <class name="text-button"/>
+                            </style>
+                            <property name="child">
+                              <object class="GtkBox">
+                                <property name="spacing">6</property>
+                                <child>
+                                  <object class="GtkDrawingArea" id="fill_filled_icon">
+                                    <property name="content-width">14</property>
+                                    <property name="content-height">14</property>
+                                    <property name="valign">center</property>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkLabel">
+                                    <property name="label" translatable="yes">Fill</property>
+                                  </object>
+                                </child>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkButton" id="swatch_yellow">
-                        <property name="tooltip-text" translatable="yes">Yellow</property>
-                        <property name="action-name">edit-markup.color</property>
-                        <property name="action-target">'yellow'</property>
-                        <style>
-                          <class name="swatch-button"/>
-                        </style>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="color-swatch"/>
-                              <class name="yellow"/>
-                            </style>
-                          </object>
-                        </property>
+                      <object class="GtkSeparator" id="font_sep">
+                        <property name="visible">false</property>
+                        <property name="orientation">vertical</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkButton" id="swatch_red">
-                        <property name="tooltip-text" translatable="yes">Red</property>
-                        <property name="action-name">edit-markup.color</property>
-                        <property name="action-target">'red'</property>
-                        <style>
-                          <class name="swatch-button"/>
-                        </style>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="color-swatch"/>
-                              <class name="red"/>
-                            </style>
+                      <object class="GtkBox" id="font_row">
+                        <property name="visible">false</property>
+                        <property name="spacing">2</property>
+                        <child>
+                          <object class="GtkToggleButton">
+                            <property name="tooltip-text" translatable="yes">Sans</property>
+                            <accessibility>
+                              <property name="label" translatable="yes">Sans</property>
+                            </accessibility>
+                            <property name="action-name">edit-markup.font</property>
+                            <property name="action-target">'sans'</property>
+                            <property name="child">
+                              <object class="GtkLabel">
+                                <property name="label">Aa</property>
+                                <style>
+                                  <class name="font-sans"/>
+                                </style>
+                              </object>
+                            </property>
                           </object>
-                        </property>
+                        </child>
+                        <child>
+                          <object class="GtkToggleButton">
+                            <property name="tooltip-text" translatable="yes">Serif</property>
+                            <accessibility>
+                              <property name="label" translatable="yes">Serif</property>
+                            </accessibility>
+                            <property name="action-name">edit-markup.font</property>
+                            <property name="action-target">'serif'</property>
+                            <property name="child">
+                              <object class="GtkLabel">
+                                <property name="label">Aa</property>
+                                <style>
+                                  <class name="font-serif"/>
+                                </style>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkToggleButton">
+                            <property name="tooltip-text" translatable="yes">Monospace</property>
+                            <accessibility>
+                              <property name="label" translatable="yes">Monospace</property>
+                            </accessibility>
+                            <property name="action-name">edit-markup.font</property>
+                            <property name="action-target">'mono'</property>
+                            <property name="child">
+                              <object class="GtkLabel">
+                                <property name="label">Aa</property>
+                                <style>
+                                  <class name="font-mono"/>
+                                </style>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkToggleButton">
+                            <property name="tooltip-text" translatable="yes">Handwriting</property>
+                            <accessibility>
+                              <property name="label" translatable="yes">Handwriting</property>
+                            </accessibility>
+                            <property name="action-name">edit-markup.font</property>
+                            <property name="action-target">'hand'</property>
+                            <property name="child">
+                              <object class="GtkLabel">
+                                <property name="label">Aa</property>
+                                <style>
+                                  <class name="font-hand"/>
+                                </style>
+                              </object>
+                            </property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkButton" id="swatch_orange">
-                        <property name="tooltip-text" translatable="yes">Orange</property>
-                        <property name="action-name">edit-markup.color</property>
-                        <property name="action-target">'orange'</property>
-                        <style>
-                          <class name="swatch-button"/>
-                        </style>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="color-swatch"/>
-                              <class name="orange"/>
-                            </style>
-                          </object>
-                        </property>
+                      <object class="GtkSeparator" id="background_sep">
+                        <property name="visible">false</property>
+                        <property name="orientation">vertical</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkButton" id="swatch_green">
-                        <property name="tooltip-text" translatable="yes">Green</property>
-                        <property name="action-name">edit-markup.color</property>
-                        <property name="action-target">'green'</property>
-                        <style>
-                          <class name="swatch-button"/>
-                        </style>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="color-swatch"/>
-                              <class name="green"/>
-                            </style>
-                          </object>
-                        </property>
+                      <object class="GtkToggleButton" id="background_button">
+                        <property name="visible">false</property>
+                        <property name="icon-name">glance-text-background-symbolic</property>
+                        <property name="tooltip-text" translatable="yes">Text Background</property>
+                        <property name="action-name">edit-markup.text-background</property>
                       </object>
                     </child>
                   </object>
-                </child>
-                <child>
-                  <object class="GtkBox" id="fill_box">
-                    <property name="visible">false</property>
-                    <property name="spacing">2</property>
-                    <child>
-                      <object class="GtkSeparator">
-                        <property name="orientation">vertical</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton" id="fill_outline">
-                        <property name="icon-name">glance-outline-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Outline</property>
-                        <property name="action-name">edit-markup.fill</property>
-                        <property name="action-target">'outline'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton" id="fill_filled">
-                        <property name="icon-name">glance-filled-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Filled</property>
-                        <property name="action-name">edit-markup.fill</property>
-                        <property name="action-target">'filled'</property>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkBox" id="width_box">
-                    <property name="spacing">2</property>
-                    <child>
-                      <object class="GtkSeparator" id="width_separator">
-                        <property name="orientation">vertical</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton" id="width_thin">
-                        <property name="tooltip-text" translatable="yes">Thin</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'s'</property>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="width-request">4</property>
-                            <property name="height-request">4</property>
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="size-dot"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Medium</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'m'</property>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="width-request">7</property>
-                            <property name="height-request">7</property>
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="size-dot"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Thick</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'l'</property>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="width-request">10</property>
-                            <property name="height-request">10</property>
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="size-dot"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Very Thick</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'xl'</property>
-                        <property name="child">
-                          <object class="AdwBin">
-                            <property name="width-request">14</property>
-                            <property name="height-request">14</property>
-                            <property name="halign">center</property>
-                            <property name="valign">center</property>
-                            <style>
-                              <class name="size-dot"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                  </object>
-                </child>
-                <child>
-                  <object class="GtkBox" id="text_box">
-                    <property name="spacing">2</property>
-                    <property name="visible">false</property>
-                    <child>
-                      <object class="GtkSeparator">
-                        <property name="orientation">vertical</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Small</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'s'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">A</property>
-                            <style>
-                              <class name="text-size-s"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Medium</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'m'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">A</property>
-                            <style>
-                              <class name="text-size-m"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Large</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'l'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">A</property>
-                            <style>
-                              <class name="text-size-l"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Very Large</property>
-                        <property name="action-name">edit-markup.width</property>
-                        <property name="action-target">'xl'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">A</property>
-                            <style>
-                              <class name="text-size-xl"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkSeparator">
-                        <property name="orientation">vertical</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Sans</property>
-                        <property name="action-name">edit-markup.font</property>
-                        <property name="action-target">'sans'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">Aa</property>
-                            <style>
-                              <class name="font-sans"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Serif</property>
-                        <property name="action-name">edit-markup.font</property>
-                        <property name="action-target">'serif'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">Aa</property>
-                            <style>
-                              <class name="font-serif"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Monospace</property>
-                        <property name="action-name">edit-markup.font</property>
-                        <property name="action-target">'mono'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">Aa</property>
-                            <style>
-                              <class name="font-mono"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="tooltip-text" translatable="yes">Handwriting</property>
-                        <property name="action-name">edit-markup.font</property>
-                        <property name="action-target">'hand'</property>
-                        <property name="child">
-                          <object class="GtkLabel">
-                            <property name="label">Aa</property>
-                            <style>
-                              <class name="font-hand"/>
-                            </style>
-                          </object>
-                        </property>
-                      </object>
-                    </child>
-                  </object>
-                </child>
+                </property>
               </object>
-            </property>
-          </object>
-        </child>
-        <child>
-          <object class="GtkCenterBox">
-            <property name="center-widget">
-              <object class="GtkScrolledWindow">
+            </child>
+            <child>
+              <object class="GtkScrolledWindow" id="colors_page">
+                <layout>
+                  <property name="column">0</property>
+                  <property name="row">0</property>
+                </layout>
                 <property name="hscrollbar-policy">external</property>
                 <property name="vscrollbar-policy">never</property>
                 <property name="propagate-natural-width">true</property>
@@ -419,82 +258,303 @@
                     <property name="spacing">2</property>
                     <style>
                       <class name="glance-pill"/>
-                      <class name="accent-checked"/>
                     </style>
+                                    <child>
+                                      <object class="GtkButton" id="swatch_blue">
+                                        <property name="tooltip-text" translatable="yes">Blue</property>
+                                        <property name="action-name">edit-markup.color</property>
+                                        <property name="action-target">'blue'</property>
+                                        <style>
+                                          <class name="swatch-button"/>
+                                        </style>
+                                        <property name="child">
+                                          <object class="AdwBin">
+                                            <property name="halign">center</property>
+                                            <property name="valign">center</property>
+                                            <style>
+                                              <class name="color-swatch"/>
+                                              <class name="blue"/>
+                                            </style>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton" id="swatch_yellow">
+                                        <property name="tooltip-text" translatable="yes">Yellow</property>
+                                        <property name="action-name">edit-markup.color</property>
+                                        <property name="action-target">'yellow'</property>
+                                        <style>
+                                          <class name="swatch-button"/>
+                                        </style>
+                                        <property name="child">
+                                          <object class="AdwBin">
+                                            <property name="halign">center</property>
+                                            <property name="valign">center</property>
+                                            <style>
+                                              <class name="color-swatch"/>
+                                              <class name="yellow"/>
+                                            </style>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton" id="swatch_red">
+                                        <property name="tooltip-text" translatable="yes">Red</property>
+                                        <property name="action-name">edit-markup.color</property>
+                                        <property name="action-target">'red'</property>
+                                        <style>
+                                          <class name="swatch-button"/>
+                                        </style>
+                                        <property name="child">
+                                          <object class="AdwBin">
+                                            <property name="halign">center</property>
+                                            <property name="valign">center</property>
+                                            <style>
+                                              <class name="color-swatch"/>
+                                              <class name="red"/>
+                                            </style>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton" id="swatch_orange">
+                                        <property name="tooltip-text" translatable="yes">Orange</property>
+                                        <property name="action-name">edit-markup.color</property>
+                                        <property name="action-target">'orange'</property>
+                                        <style>
+                                          <class name="swatch-button"/>
+                                        </style>
+                                        <property name="child">
+                                          <object class="AdwBin">
+                                            <property name="halign">center</property>
+                                            <property name="valign">center</property>
+                                            <style>
+                                              <class name="color-swatch"/>
+                                              <class name="orange"/>
+                                            </style>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkButton" id="swatch_green">
+                                        <property name="tooltip-text" translatable="yes">Green</property>
+                                        <property name="action-name">edit-markup.color</property>
+                                        <property name="action-target">'green'</property>
+                                        <style>
+                                          <class name="swatch-button"/>
+                                        </style>
+                                        <property name="child">
+                                          <object class="AdwBin">
+                                            <property name="halign">center</property>
+                                            <property name="valign">center</property>
+                                            <style>
+                                              <class name="color-swatch"/>
+                                              <class name="green"/>
+                                            </style>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkSeparator">
+                                        <property name="orientation">vertical</property>
+                                      </object>
+                                    </child>
+                                    <child>
+                                      <object class="GtkMenuButton" id="custom_button">
+                                        <property name="tooltip-text" translatable="yes">Choose a Color</property>
+                                        <property name="direction">up</property>
+                                        <property name="valign">center</property>
+                                        <style>
+                                          <class name="custom-color"/>
+                                        </style>
+                                        <property name="child">
+                                          <object class="GtkDrawingArea" id="custom_swatch">
+                                            <property name="content-width">30</property>
+                                            <property name="content-height">30</property>
+                                          </object>
+                                        </property>
+                                        <property name="popover">
+                                          <object class="GtkPopover" id="color_popover">
+                                            <property name="has-arrow">false</property>
+                                            <style>
+                                              <class name="glance-card"/>
+                                            </style>
+                                            <property name="child">
+                                              <object class="LpColorCard" id="color_card"/>
+                                            </property>
+                                          </object>
+                                        </property>
+                                      </object>
+                                    </child>
+                  </object>
+                </property>
+              </object>
+            </child>
+          </object>
+        </child>
+        <child>
+          <object class="GtkScrolledWindow">
+            <property name="hscrollbar-policy">external</property>
+            <property name="vscrollbar-policy">never</property>
+            <property name="propagate-natural-width">true</property>
+            <property name="propagate-natural-height">true</property>
+            <property name="halign">center</property>
+            <property name="child">
+              <object class="GtkBox">
+                <property name="spacing">2</property>
+                <style>
+                  <class name="glance-pill"/>
+                  <class name="accent-checked"/>
+                </style>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-select-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Move, Resize and Rotate</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'select'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-brush-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Paintbrush</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'brush'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-highlighter-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Highlighter</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'highlighter'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-line-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Line</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'line'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-arrow-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Arrow</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'arrow'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-box-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Rectangle</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'rectangle'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-circle-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Circle</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'ellipse'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-text-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Text</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'text'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkToggleButton">
+                    <property name="icon-name">glance-eraser-symbolic</property>
+                    <property name="tooltip-text" translatable="yes">Eraser</property>
+                    <property name="action-name">edit-markup.tool</property>
+                    <property name="action-target">'eraser'</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkBox" id="chips_box">
+                    <property name="spacing">2</property>
                     <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-select-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Move, Resize and Rotate</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'select'</property>
+                      <object class="GtkSeparator" id="chips_separator">
+                        <property name="orientation">vertical</property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-brush-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Paintbrush</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'brush'</property>
+                      <object class="GtkToggleButton" id="color_button">
+                        <property name="tooltip-text" translatable="yes">Color</property>
+                        <style>
+                          <class name="options-chip"/>
+                        </style>
+                        <accessibility>
+                          <property name="label" translatable="yes">Color</property>
+                        </accessibility>
+                        <property name="child">
+                          <object class="GtkDrawingArea" id="color_dot">
+                            <property name="content-width">18</property>
+                            <property name="content-height">18</property>
+                            <property name="halign">center</property>
+                            <property name="valign">center</property>
+                          </object>
+                        </property>
                       </object>
                     </child>
                     <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-highlighter-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Highlighter</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'highlighter'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-line-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Line</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'line'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-arrow-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Arrow</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'arrow'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-box-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Rectangle</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'rectangle'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-circle-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Circle</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'ellipse'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-text-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Text</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'text'</property>
-                      </object>
-                    </child>
-                    <child>
-                      <object class="GtkToggleButton">
-                        <property name="icon-name">glance-eraser-symbolic</property>
-                        <property name="tooltip-text" translatable="yes">Eraser</property>
-                        <property name="action-name">edit-markup.tool</property>
-                        <property name="action-target">'eraser'</property>
+                      <object class="GtkToggleButton" id="options_button">
+                        <property name="tooltip-text" translatable="yes">Line Width</property>
+                        <style>
+                          <class name="options-chip"/>
+                        </style>
+                        <accessibility>
+                          <property name="label" translatable="yes">Line Width</property>
+                        </accessibility>
+                        <property name="child">
+                          <object class="GtkStack" id="chip_stack">
+                            <property name="hhomogeneous">true</property>
+                            <property name="vhomogeneous">false</property>
+                            <child>
+                              <object class="GtkStackPage">
+                                <property name="name">draw</property>
+                                <property name="child">
+                                  <object class="GtkDrawingArea" id="chip_face">
+                                    <property name="content-width">22</property>
+                                    <property name="content-height">18</property>
+                                    <property name="halign">center</property>
+                                    <property name="valign">center</property>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkStackPage">
+                                <property name="name">text</property>
+                                <property name="child">
+                                  <object class="GtkLabel" id="chip_text">
+                                    <property name="label">Aa</property>
+                                    <style>
+                                      <class name="font-sans"/>
+                                    </style>
+                                  </object>
+                                </property>
+                              </object>
+                            </child>
+                          </object>
+                        </property>
                       </object>
                     </child>
                   </object>
-                </property>
+                </child>
               </object>
             </property>
           </object>

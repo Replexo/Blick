@@ -1,0 +1,69 @@
+/* Thumbnail strip: floating bar for several opened images, or in the
+   viewer controls for the folder */
+.osd-pill {
+  border-radius: 9999px;
+  background-color: var(--osd-background-color);
+}
+
+lpthumbnailstrip.osd-pill {
+  padding: 2px 8px;
+}
+
+lpthumbnailstrip.osd-pill listview {
+  margin: 6px 0;
+}
+
+lpthumbnailstrip listview,
+lpthumbnailstrip listview > row,
+lpthumbnailstrip listview > row:hover,
+lpthumbnailstrip listview > row:active {
+  background: none;
+  padding: 0;
+}
+
+lpthumbnailstrip listview > row {
+  margin: 0 4px;
+}
+
+lpthumbnailstrip .thumbnail {
+  padding: 0;
+  border-radius: 9px;
+}
+
+lpthumbnailstrip .current .thumbnail {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+lpthumbnailstrip .thumbnail-close {
+  min-width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: -2px;
+}
+
+lpthumbnailstrip .thumbnail-close image {
+  -gtk-icon-size: 10px;
+}
+
+/* Folder strip: full-width band of small thumbnails, the current one is larger */
+lpthumbnailstrip.folder-strip {
+  background-color: var(--osd-background-color);
+  padding: 6px 0;
+}
+
+lpthumbnailstrip.compact listview > row {
+  margin: 0 1px;
+}
+
+lpthumbnailstrip.compact .thumbnail {
+  border-radius: 6px;
+}
+
+lpthumbnailstrip.compact .current {
+  margin: 0 6px;
+}
+
+lpthumbnailstrip.compact .current .thumbnail {
+  outline: none;
+}

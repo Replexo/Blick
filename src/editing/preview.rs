@@ -19,6 +19,7 @@ use glycin::{Operation, Operations};
 use gtk::prelude::*;
 use gufo::common::orientation::Rotation;
 
+use super::geometry::Geometry;
 use crate::deps::*;
 
 pub fn apply_operations(
@@ -29,10 +30,15 @@ pub fn apply_operations(
     snapshot: &gtk::Snapshot,
     scale: f64,
     initial_operations: &Operations,
+    geometry: Geometry,
 ) -> Result<(u32, u32), EditingError> {
     let mut os = OperationsSnapshot::new(node, width, height, scale as f32);
 
     os.apply(initial_operations)?;
+    if !geometry.is_identity() {
+        os.warp(geometry)
+            .map_err(|_| EditingError::EmptyGeometry(geometry))?;
+    }
 
     if let Some(operations) = operations {
         os.apply_and_commit(operations, snapshot)
@@ -119,6 +125,36 @@ impl OperationsSnapshot {
         Ok(())
     }
 
+    /// Straightens and corrects perspective, keeping the size
+    fn warp(&mut self, geometry: Geometry) -> Result<(), OperationError> {
+        let m = geometry.matrix((self.width as f64, self.height as f64));
+        // Row vectors in graphene, so the matrix is transposed
+        let m = m.map(|row| row.map(|x| x as f32));
+        let matrix = graphene::Matrix::from_float([
+            m[0][0], m[1][0], 0., m[2][0], //
+            m[0][1], m[1][1], 0., m[2][1], //
+            0., 0., 1., 0., //
+            m[0][2], m[1][2], 0., m[2][2],
+        ]);
+
+        let snapshot = gtk::Snapshot::new();
+        snapshot.push_clip(&graphene::Rect::new(
+            0.,
+            0.,
+            self.width as f32 * self.scale,
+            self.height as f32 * self.scale,
+        ));
+        snapshot.scale(self.scale, self.scale);
+        snapshot.transform(Some(&gsk::Transform::new().matrix(&matrix)));
+        snapshot.scale(1. / self.scale, 1. / self.scale);
+        snapshot.append_node(self.current_node.clone());
+        snapshot.pop();
+
+        self.current_node = snapshot.to_node().ok_or(OperationError::EmptyNode)?;
+
+        Ok(())
+    }
+
     fn mirror_horizontally(&mut self) -> Result<(), OperationError> {
         let snapshot = gtk::Snapshot::new();
 
@@ -178,6 +214,8 @@ pub enum EditingError {
     EmptyNode(Operation),
     #[error("The following editing operation is not supported: {0:?}")]
     UnsupportedOperation(Operation),
+    #[error("Node empty after straightening: {0:?}")]
+    EmptyGeometry(Geometry),
 }
 
 #[derive(Debug, Clone, thiserror::Error)]

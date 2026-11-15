@@ -55,6 +55,12 @@ mod imp {
         pub(super) last_offset: Cell<Option<(f64, f64)>>,
         /// Font of new text
         pub(super) font: Cell<Font>,
+        /// New text gets a box behind it
+        pub(super) text_background: Cell<bool>,
+        /// The next click takes a colour from the image, and the rest of
+        /// that drag is ignored
+        pub(super) picking: Cell<bool>,
+        pub(super) pick_drag: Cell<bool>,
         /// Handle of the selected shape that is being dragged, and the
         /// shape as it was when the drag started
         pub(super) handle: Cell<Option<Handle>>,
@@ -74,8 +80,11 @@ mod imp {
         /// Corner, clockwise from the top left; resizes around the opposite
         /// corner
         Corner(usize),
-        /// Above the shape; rotates around its centre
+        /// Edges of the outline and just outside the corners; rotates
+        /// around the centre
         Rotate,
+        /// Start or end point of a line or arrow; moves that point only
+        End(usize),
     }
 
     /// Text shape that is still being typed, and the caret as byte index.
@@ -281,6 +290,10 @@ mod imp {
                 glib::Propagation::Proceed,
                 move |_, key, _, modifiers| {
                     let imp = obj.imp();
+                    if imp.picking.get() && key == gdk::Key::Escape {
+                        obj.cancel_color_pick();
+                        return glib::Propagation::Stop;
+                    }
                     if imp.typing.borrow().is_some() {
                         return imp.typing_key(key, modifiers);
                     }
@@ -305,12 +318,23 @@ mod imp {
             drag.connect_drag_begin(glib::clone!(
                 #[weak]
                 obj,
-                move |gesture, x, y| obj.imp().drag_begin(x, y, gesture.current_event_time())
+                move |gesture, x, y| {
+                    let imp = obj.imp();
+                    if imp.picking.get() {
+                        imp.pick_drag.set(true);
+                        imp.pick_color(x, y);
+                    } else {
+                        imp.drag_begin(x, y, gesture.current_event_time());
+                    }
+                }
             ));
             drag.connect_drag_update(glib::clone!(
                 #[weak]
                 obj,
                 move |gesture, x, y| {
+                    if obj.imp().pick_drag.get() {
+                        return;
+                    }
                     let shift = gesture
                         .current_event_state()
                         .contains(gdk::ModifierType::SHIFT_MASK);
@@ -320,7 +344,11 @@ mod imp {
             drag.connect_drag_end(glib::clone!(
                 #[weak]
                 obj,
-                move |_, _, _| obj.imp().drag_end()
+                move |_, _, _| {
+                    if !obj.imp().pick_drag.replace(false) {
+                        obj.imp().drag_end();
+                    }
+                }
             ));
             obj.add_controller(drag);
 
@@ -399,7 +427,10 @@ mod imp {
             // Also outline the parts outside the picture
             cr.reset_clip();
             if let Some(shape) = selected {
-                draw_outline(&cr, shape);
+                // Lines and arrows are edited by their two points
+                if !is_two_point(shape) {
+                    draw_outline(&cr, shape);
+                }
                 if let Some(handles) = self.handle_points(shape) {
                     draw_handles(&cr, &handles);
                 }
@@ -443,7 +474,59 @@ mod imp {
             Some(((x - offset_x) / scale, (y - offset_y) / scale))
         }
 
+        /// Takes the colour of the image as shown at the widget point
+        /// `(x, y)`
+        pub(super) fn pick_color(&self, x: f64, y: f64) {
+            let obj = self.obj();
+            let image = self.image();
+            let Some(point) = obj.compute_point(&image, &graphene::Point::new(x as f32, y as f32))
+            else {
+                return;
+            };
+            let (width, height) = (image.width() as f32, image.height() as f32);
+            if point.x() < 0. || point.y() < 0. || point.x() >= width || point.y() >= height {
+                return;
+            }
+            // The image widget paints an opaque background around the picture
+            let (img_x, img_y) = image.widget_to_img_coord((point.x() as f64, point.y() as f64));
+            let (img_width, img_height) = image.image_size();
+            if img_x < 0. || img_y < 0. || img_x >= img_width as f64 || img_y >= img_height as f64 {
+                return;
+            }
+            let Some(renderer) = obj.native().and_then(|x| x.renderer()) else {
+                return;
+            };
+
+            let paintable = gtk::WidgetPaintable::new(Some(&image));
+            let snapshot = gtk::Snapshot::new();
+            paintable.snapshot(&snapshot, width as f64, height as f64);
+            let Some(node) = snapshot.to_node() else {
+                return;
+            };
+            let pixel = graphene::Rect::new(point.x().floor(), point.y().floor(), 1., 1.);
+            let texture = renderer.render_texture(&node, Some(&pixel));
+            let mut data = [0u8; 4];
+            texture.download(&mut data, 4);
+            // Premultiplied BGRA; transparent pixels of the image itself
+            // have no colour to pick
+            let [b, g, r, a] = data;
+            if a == 0 {
+                return;
+            }
+            let channel = |x: u8| ((x as f64 * 255. / a as f64).round().min(255.)) as u8;
+            let color = Color::rgb(channel(r), channel(g), channel(b));
+
+            self.picking.set(false);
+            self.restore_cursor();
+            let hex = format!("#{:02X}{:02X}{:02X}", color.r, color.g, color.b);
+            let _ = obj.activate_action("edit-markup.picked-color", Some(&hex.to_variant()));
+        }
+
         pub(super) fn restore_cursor(&self) {
+            if self.picking.get() {
+                self.obj().set_cursor_from_name(Some("crosshair"));
+                return;
+            }
             self.obj().set_cursor_from_name(Some(match self.tool.get() {
                 Tool::Select => "default",
                 Tool::Eraser => "cell",
@@ -479,7 +562,11 @@ mod imp {
             };
             let fillable = matches!(kind, Kind::Rectangle { .. } | Kind::Ellipse { .. });
             let mut shape = Shape::new(kind, self.color.get(), size * self.size_factor.get());
-            shape.filled = fillable && self.filled.get();
+            shape.filled = if matches!(shape.kind, Kind::Text { .. }) {
+                self.text_background.get()
+            } else {
+                fillable && self.filled.get()
+            };
             shape.font = self.font.get();
             // Shapes are stored relative to the original image
             let (matrix, _) = self.operations_matrix();
@@ -598,9 +685,11 @@ mod imp {
             if self.tool.get() == Tool::Select {
                 let (start_x, start_y) = self.drag_start.get();
                 match self.handle.get() {
-                    Some(handle) => {
-                        self.transform_selected(handle, (start_x + offset_x, start_y + offset_y))
-                    }
+                    Some(handle) => self.transform_selected(
+                        handle,
+                        (start_x + offset_x, start_y + offset_y),
+                        shift,
+                    ),
                     None => self.move_selected(offset_x, offset_y),
                 }
                 return;
@@ -715,18 +804,23 @@ mod imp {
             ]
         }
 
-        /// Corner handles and the rotate handle in widget coordinates
-        pub(super) fn handle_points(&self, shape: &Shape) -> Option<[(f64, f64); 5]> {
+        /// Handles in widget coordinates: the two points of lines and
+        /// arrows, otherwise the corners of the outline clockwise from the
+        /// top left
+        pub(super) fn handle_points(&self, shape: &Shape) -> Option<Vec<(f64, f64)>> {
             let to_widget = self.shape_to_widget(shape)?;
+            if let Kind::Line { from, to } | Kind::Arrow { from, to } = shape.kind {
+                return Some(vec![
+                    to_widget.transform_point(from.0, from.1),
+                    to_widget.transform_point(to.0, to.1),
+                ]);
+            }
             let corners = Self::outline_corners(shape, &to_widget);
-            let w = corners.map(|(x, y)| to_widget.transform_point(x, y));
-            // The rotate handle sits above the middle of the top edge
-            let top = ((w[0].0 + w[1].0) / 2., (w[0].1 + w[1].1) / 2.);
-            let bottom = ((w[2].0 + w[3].0) / 2., (w[2].1 + w[3].1) / 2.);
-            let (dx, dy) = (top.0 - bottom.0, top.1 - bottom.1);
-            let length = dx.hypot(dy).max(f64::EPSILON);
-            let rotate = (top.0 + dx / length * 24., top.1 + dy / length * 24.);
-            Some([w[0], w[1], w[2], w[3], rotate])
+            Some(
+                corners
+                    .map(|(x, y)| to_widget.transform_point(x, y))
+                    .to_vec(),
+            )
         }
 
         fn handle_at(&self, x: f64, y: f64) -> Option<Handle> {
@@ -738,16 +832,23 @@ mod imp {
                 .enumerate()
                 .map(|(i, p)| (i, (p.0 - x).hypot(p.1 - y)))
                 .min_by(|a, b| a.1.total_cmp(&b.1))?;
-            (distance <= 10.).then_some(if nearest == 4 {
-                Handle::Rotate
-            } else {
-                Handle::Corner(nearest)
-            })
+
+            if is_two_point(&shape) {
+                return (distance <= 10.).then_some(Handle::End(nearest));
+            }
+            if distance <= 10. {
+                return Some(Handle::Corner(nearest));
+            }
+            // Just outside the edges and corners rotates; inside moves
+            let on_edge =
+                (0..4).any(|i| segment_distance(points[i], points[(i + 1) % 4], (x, y)) <= 5.);
+            let outside = !inside_quad(&points, (x, y));
+            (outside && (on_edge || distance <= 26.)).then_some(Handle::Rotate)
         }
 
-        /// Resizes or rotates the selected shape so the handle follows the
-        /// pointer at the widget point `pointer`
-        fn transform_selected(&self, handle: Handle, pointer: (f64, f64)) {
+        /// Resizes, rotates or reshapes the selected shape so the handle
+        /// follows the pointer at the widget point `pointer`
+        fn transform_selected(&self, handle: Handle, pointer: (f64, f64), shift: bool) {
             let Some(index) = self.selected.get() else {
                 return;
             };
@@ -762,6 +863,20 @@ mod imp {
             };
             let corners = Self::outline_corners(&start, &to_widget);
             let mut local = cairo::Matrix::identity();
+
+            if let Handle::End(end) = handle {
+                let mut shape = start;
+                let p = to_shape.transform_point(pointer.0, pointer.1);
+                if let Kind::Line { from, to } | Kind::Arrow { from, to } = &mut shape.kind {
+                    // Shift keeps the line at multiples of 45°, like drawing
+                    let (point, other) = if end == 0 { (from, *to) } else { (to, *from) };
+                    *point = if shift { snap_angle(other, p) } else { p };
+                }
+                self.obj()
+                    .edit_window()
+                    .replace_markup(index, shape, !self.moved.replace(true));
+                return;
+            }
 
             match handle {
                 Handle::Rotate => {
@@ -796,6 +911,7 @@ mod imp {
                     local.scale(factor, factor);
                     local.translate(-anchor.0, -anchor.1);
                 }
+                Handle::End(_) => {}
             }
 
             let mut shape = start;
@@ -808,6 +924,9 @@ mod imp {
         /// Shows what pressing at `(x, y)` would do with the select tool
         fn hover(&self, x: f64, y: f64) {
             let obj = self.obj();
+            if self.picking.get() {
+                return;
+            }
             // The outline of the text being typed moves it
             if self.tool.get() == Tool::Text {
                 if !self.moving_text.get() {
@@ -825,6 +944,7 @@ mod imp {
                 Some(Handle::Corner(corner)) => {
                     obj.set_cursor_from_name(Some(self.corner_cursor(corner)))
                 }
+                Some(Handle::End(_)) => obj.set_cursor_from_name(Some("crosshair")),
                 None if self.shape_at(x, y).is_some() => obj.set_cursor_from_name(Some("move")),
                 None => obj.set_cursor_from_name(Some("default")),
             }
@@ -1285,23 +1405,29 @@ fn determinant(matrix: &cairo::Matrix) -> f64 {
     matrix.xx() * matrix.yy() - matrix.yx() * matrix.xy()
 }
 
-/// Corner handles and the rotate handle, in widget coordinates
-fn draw_handles(cr: &cairo::Context, points: &[(f64, f64); 5]) {
+/// Whether `shape` is edited by its two points instead of an outline
+fn is_two_point(shape: &Shape) -> bool {
+    matches!(shape.kind, Kind::Line { .. } | Kind::Arrow { .. })
+}
+
+/// Whether `point` is inside the convex outline `quad`
+fn inside_quad(quad: &[(f64, f64)], point: (f64, f64)) -> bool {
+    let sides: Vec<f64> = (0..quad.len())
+        .map(|i| {
+            let (a, b) = (quad[i], quad[(i + 1) % quad.len()]);
+            (b.0 - a.0) * (point.1 - a.1) - (b.1 - a.1) * (point.0 - a.0)
+        })
+        .collect();
+    sides.iter().all(|s| *s >= 0.) || sides.iter().all(|s| *s <= 0.)
+}
+
+/// Handles, in widget coordinates
+fn draw_handles(cr: &cairo::Context, points: &[(f64, f64)]) {
     cr.save().ok();
     cr.identity_matrix();
     cr.set_dash(&[], 0.);
-    // Stem from the top edge to the rotate handle
-    let top = (
-        (points[0].0 + points[1].0) / 2.,
-        (points[0].1 + points[1].1) / 2.,
-    );
-    cr.move_to(top.0, top.1);
-    cr.line_to(points[4].0, points[4].1);
-    cr.set_line_width(1.5);
-    cr.set_source_rgb(1., 1., 1.);
-    let _ = cr.stroke();
-    for (i, (x, y)) in points.iter().enumerate() {
-        let radius = if i == 4 { 6. } else { 5. };
+    for (x, y) in points {
+        let radius = if points.len() == 2 { 6. } else { 5. };
         cr.arc(*x, *y, radius, 0., std::f64::consts::TAU);
         cr.set_source_rgb(1., 1., 1.);
         let _ = cr.fill_preserve();
@@ -1401,6 +1527,7 @@ glib::wrapper! {
 impl LpMarkupCanvas {
     pub fn set_tool(&self, tool: Tool) {
         let imp = self.imp();
+        imp.picking.set(false);
         imp.finish_text();
         imp.tool.set(tool);
         if tool != Tool::Select && imp.selected.take().is_some() {
@@ -1431,6 +1558,53 @@ impl LpMarkupCanvas {
             typing.shape.font = font;
         }
         imp.keep_typing();
+    }
+
+    /// The next click takes a colour from the image
+    pub fn start_color_pick(&self) {
+        let imp = self.imp();
+        imp.picking.set(true);
+        imp.restore_cursor();
+    }
+
+    /// If the next click takes a colour from the image
+    pub fn is_picking(&self) -> bool {
+        self.imp().picking.get()
+    }
+
+    /// Leaves colour picking without taking a colour
+    pub fn cancel_color_pick(&self) {
+        let imp = self.imp();
+        imp.picking.set(false);
+        imp.restore_cursor();
+    }
+
+    pub fn set_text_background(&self, background: bool) {
+        let imp = self.imp();
+        imp.text_background.set(background);
+        if let Some(typing) = imp.typing.borrow_mut().as_mut() {
+            typing.shape.filled = background;
+        }
+        imp.keep_typing();
+    }
+
+    /// Size of new shapes of `tool` at size factor 1, in image pixels, and
+    /// the screen pixels that one image pixel takes
+    pub fn size_metrics(&self, tool: Tool) -> Option<(f64, f64)> {
+        let image = self.imp().image();
+        let (width, height) = image.image_size();
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        let (width, height) = (width as u32, height as u32);
+        let base = match tool {
+            Tool::Highlighter => markup::highlighter_width(width, height),
+            Tool::Text => markup::font_size(width, height),
+            Tool::Eraser => markup::eraser_width(width, height),
+            _ => markup::line_width(width, height),
+        };
+        let (_, _, scale) = image_transform(&image)?;
+        Some((base, scale))
     }
 
     pub fn set_size_factor(&self, factor: f64) {

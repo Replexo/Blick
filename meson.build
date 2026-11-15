@@ -1,7 +1,7 @@
 project(
   'glance',
   'rust',
-  version: '1.1',
+  version: '1.2',
   meson_version: '>= 0.59.0',
   default_options: [
     'warning_level=2',
@@ -45,7 +45,7 @@ datadir = prefix / get_option('datadir')
 pkgdatadir = datadir / meson.project_name()
 
 subdir('data')
-subdir('help')
+#subdir('help')
 subdir('src')
 subdir('po')
 

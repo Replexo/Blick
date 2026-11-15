@@ -3,6 +3,7 @@
 @import 'edit_glance.css';
 @import 'text_layer.css';
 @import 'updates.css';
+@import 'thumbnails.css';
 
 :root {
   --osd-background-color: rgba(240, 240, 240, 0.75);

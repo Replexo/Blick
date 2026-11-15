@@ -45,7 +45,21 @@
           </object>
         </child>
         <child type="overlay">
+          <object class="LpThumbnailStrip" id="folder_strip">
+            <property name="visible">False</property>
+            <property name="valign">end</property>
+            <property name="halign">fill</property>
+            <style>
+              <class name="folder-strip" />
+            </style>
+            <child>
+              <object class="GtkEventControllerMotion" id="folder_strip_events" />
+            </child>
+          </object>
+        </child>
+        <child type="overlay">
           <object class="GtkBox" id="controls_box_end">
+            <property name="visible">False</property>
             <property name="valign">end</property>
             <property name="halign">end</property>
             <style>

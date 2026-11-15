@@ -67,9 +67,19 @@
   color: var(--glance-fg);
 }
 
-.glance-pill.accent-checked button:checked {
+/* Accent marks the chosen markup tool. Popovers are children of their menu
+   button, so only direct children of the pill count, never buttons inside
+   the colour card. The colour and options chips show a pill above the
+   tools. They are choices, not tools, so they stay raised grey */
+.glance-pill.accent-checked > button:checked:not(.options-chip),
+.glance-pill.accent-checked > box > button:checked:not(.options-chip) {
   background-color: var(--accent-bg-color);
   color: var(--accent-fg-color);
+}
+
+/* Geometry values: dimmed at zero, full colour once changed */
+.glance-pill button label.numeric:not(.dimmed) {
+  color: var(--glance-fg);
 }
 
 .glance-pill button.text-button {
@@ -124,16 +134,7 @@
   background: none;
 }
 
-.size-dot {
-  border-radius: 9999px;
-  background-color: var(--glance-dim);
-}
-
-/* Text sizes and fonts in the text tool's pill */
-.text-size-s { font-size: 10px; font-weight: 700; }
-.text-size-m { font-size: 13px; font-weight: 700; }
-.text-size-l { font-size: 16px; font-weight: 700; }
-.text-size-xl { font-size: 20px; font-weight: 700; }
+/* Fonts in the text tool's options pill */
 .font-sans { font-family: Sans; font-weight: 700; }
 .font-serif { font-family: Serif; font-weight: 700; }
 .font-mono { font-family: Monospace; font-weight: 700; }
@@ -157,18 +158,21 @@
 }
 
 
-/* A radius like 9999px makes GTK size the popover surface from it */
-.glance-editor popover.glance-chips > contents {
-  padding: 0;
-  border-radius: 22px;
-}
-
-.glance-editor popover.glance-chips .glance-pill {
-  background: none;
-  border: none;
-}
-
 .glance-editor colorcard entry {
   border-radius: 9999px;
   background-color: var(--glance-canvas);
+}
+
+
+/* The viewer uses the editor's dark greys, so the window and the header bar
+   do not change when the editor opens. Libadwaita draws the window, header
+   bar and views from these colours. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --window-bg-color: #0f0f11;
+    --view-bg-color: #0f0f11;
+    --headerbar-bg-color: #18181b;
+    --headerbar-backdrop-color: #18181b;
+    --headerbar-fg-color: #f2f2f4;
+  }
 }

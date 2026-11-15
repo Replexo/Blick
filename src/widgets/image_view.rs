@@ -45,7 +45,7 @@ use crate::file_model::{FileEvent, LpFileModel};
 use crate::util::gettext::*;
 use crate::util::root::ParentWindow;
 use crate::util::{self, Direction, Position};
-use crate::widgets::{LpImage, LpImagePage, LpPrint, LpSlidingView};
+use crate::widgets::{LpImage, LpImagePage, LpPrint, LpSlidingView, LpThumbnailStrip};
 
 // The number of pages we want to buffer
 // on either side of the current page.
@@ -70,6 +70,11 @@ mod imp {
         pub(super) zoom_toggle: TemplateChild<gtk::ToggleButton>,
         #[template_child]
         pub(super) controls_box_start_events: TemplateChild<gtk::EventControllerMotion>,
+        /// Thumbnails of the folder, shown instead of the previous and next buttons
+        #[template_child]
+        pub(super) folder_strip: TemplateChild<LpThumbnailStrip>,
+        #[template_child]
+        pub(super) folder_strip_events: TemplateChild<gtk::EventControllerMotion>,
 
         /// overlayed controls
         #[template_child]
@@ -123,6 +128,11 @@ mod imp {
 
         #[property(get, set, nullable)]
         pub delayed_current_file: RefCell<Option<gio::File>>,
+
+        /// Several images were opened together; they are shown as a set
+        /// without the rest of their folder
+        #[property(get)]
+        pub(super) multiple: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -132,6 +142,7 @@ mod imp {
         type ParentType = adw::Bin;
 
         fn class_init(klass: &mut Self::Class) {
+            LpThumbnailStrip::static_type();
             Self::bind_template(klass);
         }
 
@@ -165,6 +176,14 @@ mod imp {
                 #[weak]
                 obj,
                 move |_| obj.page_changed()
+            ));
+
+            self.folder_strip.set_removable(false);
+            self.folder_strip.set_compact(true);
+            self.folder_strip.connect_activate_file(glib::clone!(
+                #[weak]
+                obj,
+                move |_, file| obj.show_file(file)
             ));
 
             self.sliding_view.connect_target_page_reached(glib::clone!(
@@ -450,14 +469,84 @@ impl LpImageView {
         }
 
         if files.len() == 1 {
+            self.set_multiple(false);
             self.load_file(files[0].clone());
         } else {
-            self.load_files(files);
+            self.load_files(files, None);
         }
     }
 
-    fn load_files(&self, files: Vec<gio::File>) {
-        if let Some(first) = files.first().cloned() {
+    fn set_multiple(&self, multiple: bool) {
+        if self.multiple() != multiple {
+            self.imp().multiple.set(multiple);
+            self.notify_multiple();
+        }
+        self.update_folder_strip();
+    }
+
+    /// Shows the folder's thumbnails instead of the previous and next buttons
+    fn update_folder_strip(&self) {
+        let imp = self.imp();
+        let files = if self.multiple() {
+            Vec::new()
+        } else {
+            self.files()
+        };
+        let show = files.len() > 1;
+
+        imp.folder_strip.set_files(if show { &files } else { &[] });
+        imp.folder_strip.set_current(self.current_file().as_ref());
+        imp.folder_strip.set_visible(show);
+        imp.controls_box_start.set_visible(!show && !self.multiple());
+    }
+
+    /// Files of the current set, or of the folder
+    pub fn files(&self) -> Vec<gio::File> {
+        self.model().files()
+    }
+
+    /// Shows `files` as a set, starting with `current` or the first file
+    pub fn set_images_as_set(&self, files: Vec<gio::File>, current: Option<gio::File>) {
+        self.load_files(files, current);
+    }
+
+    /// Shows `file`, which has to be one of [`Self::files`]
+    pub fn show_file(&self, file: &gio::File) {
+        self.navigate_to_file(file);
+    }
+
+    /// Removes `file` from the set of opened images, the file itself stays
+    pub fn remove_from_set(&self, file: &gio::File) {
+        let model = self.model();
+        if model.n_files() <= 1 {
+            return;
+        }
+
+        let current = self.current_file();
+        let show = if current.as_ref().is_some_and(|x| x.equal(file)) {
+            model.after(file).or_else(|| model.before(file))
+        } else {
+            current
+        };
+
+        model.remove(file);
+
+        if let Some(show) = show {
+            self.update_sliding_view(&show);
+            self.scroll_sliding_view(&show, false);
+        }
+
+        if model.n_files() <= 1 {
+            self.set_multiple(false);
+        }
+    }
+
+    fn load_files(&self, files: Vec<gio::File>, current: Option<gio::File>) {
+        let first = current
+            .filter(|current| files.iter().any(|x| x.equal(current)))
+            .or_else(|| files.first().cloned());
+        if let Some(first) = first {
+            self.set_multiple(files.len() > 1);
             glib::spawn_future_local(glib::clone!(
                 #[strong(rename_to=obj)]
                 self,
@@ -520,6 +609,7 @@ impl LpImageView {
                     }
 
                     obj.update_sliding_view(&file);
+                    obj.update_folder_strip();
                 }
             }
         ));
@@ -664,6 +754,14 @@ impl LpImageView {
         self.imp().controls_box_start_events.clone()
     }
 
+    pub fn folder_strip(&self) -> LpThumbnailStrip {
+        self.imp().folder_strip.clone()
+    }
+
+    pub fn folder_strip_events(&self) -> gtk::EventControllerMotion {
+        self.imp().folder_strip_events.clone()
+    }
+
     pub fn controls_box_end(&self) -> gtk::Widget {
         self.imp().controls_box_end.clone()
     }
@@ -720,6 +818,8 @@ impl LpImageView {
 
     /// Handle files are added or removed from directory
     fn model_content_changed_cb(&self, file_event: &FileEvent) {
+        self.update_folder_strip();
+
         // Animate to image that was restored from trash
         if let Some(trash_restore) = self.trash_restore()
             && self.model().contains_file(&trash_restore)
@@ -803,6 +903,7 @@ impl LpImageView {
     }
 
     fn page_changed(&self) {
+        self.update_folder_strip();
         self.notify_current_page();
         self.notify_is_next_available();
         self.notify_is_previous_available();

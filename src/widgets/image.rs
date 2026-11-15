@@ -62,8 +62,8 @@ use crate::metadata::Metadata;
 use crate::util::Gesture;
 
 /// Default background color around images and behind transparent images
-/// `#222226`
-const BACKGROUND_COLOR_DEFAULT: gdk::RGBA = gdk::RGBA::new(34. / 255., 34. / 255., 38. / 255., 1.);
+/// `#0f0f11`, the same as the editor canvas
+const BACKGROUND_COLOR_DEFAULT: gdk::RGBA = gdk::RGBA::new(15. / 255., 15. / 255., 17. / 255., 1.);
 /// Background color if the default does not give enough contrast for
 /// transparent images `#e8e8ea`
 const BACKGROUND_COLOR_ALTERNATE: gdk::RGBA =
@@ -220,6 +220,9 @@ mod imp {
         /// Best fit keeps the image out of it, and a larger zoom can scroll
         /// the image edges out of it.
         pub(super) fit_insets: Cell<(f64, f64, f64, f64)>,
+        /// Zoomed in, the image can be scrolled a view's width or height
+        /// past its edges, so any point can be shown in the middle
+        pub(super) overscroll: Cell<bool>,
         /// Min zoom level is reached, stored to only send signals on change
         #[property(get, set)]
         pub(super) is_min_zoom: Cell<bool>,
@@ -277,6 +280,8 @@ mod imp {
         pub(super) operations: RefCell<Option<Arc<Operations>>>,
         /// Colour adjustments shown as a live preview
         pub(super) adjustments: Cell<crate::editing::adjust::Adjustments>,
+        /// Straightening and perspective shown in the preview
+        pub(super) geometry: Cell<crate::editing::geometry::Geometry>,
     }
 
     #[glib::object_subclass]

@@ -16,6 +16,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 pub mod adjust;
+pub mod geometry;
 pub mod markup;
 pub mod preview;
 pub mod render;
