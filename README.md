@@ -26,13 +26,15 @@ Glance runs on any Linux desktop and comes as a Flatpak, an AppImage, and packag
 
 Everything you know from Loupe: fast and sandboxed image loading, smooth zoom and gestures, image metadata, printing and setting a picture as the background.
 
+A strip of thumbnails at the bottom lets you jump to the other photos in the folder. It hides with the other controls.
+
 ### Markup
 
 - Brush, highlighter, line, arrow, rectangle, ellipse and text tools.
 - An eraser that rubs out markup where you drag.
-- Preset and custom colours, four line widths and filled shapes.
+- Preset and custom colours, an eyedropper to pick any colour from the photo, four line widths, and outlined or filled shapes.
 - Select, move, resize and rotate anything you have drawn.
-- Type text straight onto the picture, choose its font and size, and edit it again later.
+- Type text straight onto the picture, choose its font, size and background, and edit it again later.
 
 ### Adjust
 
@@ -40,7 +42,7 @@ Brightness, contrast, highlights, shadows and saturation, each on its own slider
 
 ### Crop
 
-Free or fixed aspect ratios, rotate, flip and resize.
+Free or fixed aspect ratios, rotate, flip and resize. Straighten tilted photos, fix vertical and horizontal perspective, and zoom in while you crop.
 
 ### Live text (OCR)
 

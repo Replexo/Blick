@@ -71,15 +71,16 @@
   </categories>
 
   <releases>
-    <release version="1.2" date="2026-11-11">
+    <release version="1.2" date="2026-11-15">
       <description>
+        <p>A thumbnail strip in the viewer to jump between the photos in a folder.</p>
         <p>New one-row editing toolbars with frosted option rows.</p>
         <p>Crop can straighten photos and correct vertical and horizontal perspective, and you can zoom in while cropping.</p>
         <p>Annotations follow the straightening.</p>
         <p>Lines and arrows can be edited by their end points.</p>
         <p>Text can have a background.</p>
         <p>New colour picker (eyedropper).</p>
-        <p>Saving over the original is safer when the trash is not available.</p>
+        <p>Replace Original no longer asks twice, and saving keeps file permissions.</p>
         <p>The viewer uses the same dark grey as the editor.</p>
       </description>
     </release>
