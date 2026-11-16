@@ -80,9 +80,6 @@ The Flatpak uses the GNOME 51 runtime, which Flatpak downloads from [Flathub](ht
 
 To build it yourself instead, see [Build from source](#build-from-source).
 
-### Privacy and network access
-
-Glance only goes online to check GitHub for updates. Your photos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Glance`. Once Glance is on Flathub, which handles updates itself, the update check and the network access will be removed.
 
 ## Keyboard shortcuts
 
@@ -123,7 +120,9 @@ To build a development version with its own app ID, so it can sit next to an ins
 ```sh
 meson setup builddir -Dprofile=dev -Dapp_id_suffix=.Devel
 ```
+### Privacy and network access
 
+Glance only goes online to check GitHub for updates. Your photos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Glance`. Once Glance is on Flathub, which handles updates itself, the update check and the network access will be removed.
 
 ## Contributing
 
