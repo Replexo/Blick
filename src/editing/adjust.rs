@@ -177,7 +177,7 @@ impl Adjustments {
         let matrix = self.saturation_matrix();
         let with_saturation = self.saturation != 0.;
 
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             let toned = [
                 lut[pixel[0] as usize],
                 lut[pixel[1] as usize],

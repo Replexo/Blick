@@ -752,7 +752,7 @@ fn to_rgb(buf: &[u8], width: u32, height: u32, stride: usize) -> anyhow::Result<
 
     let mut out = Vec::with_capacity(width as usize * height as usize * 3);
     for row in buf.chunks(stride).take(height as usize) {
-        for pixel in row[..row_len].chunks_exact(4) {
+        for pixel in row[..row_len].as_chunks::<4>().0 {
             let a = pixel[3] as u32;
             for &c in &pixel[..3] {
                 out.push(((c as u32 * a + 255 * (255 - a)) / 255) as u8);

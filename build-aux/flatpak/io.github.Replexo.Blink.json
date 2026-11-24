@@ -11,6 +11,8 @@
     "finish-args": [
         "--share=ipc",
         "--share=network",
+        "--own-name=org.mpris.MediaPlayer2.blink",
+        "--socket=pulseaudio",
         "--socket=fallback-x11",
         "--socket=wayland",
         "--device=dri",

@@ -337,18 +337,16 @@ impl LpImagePage {
         let image = self.image();
 
         if let Some(error) = image.specific_error() {
-            let details;
-            let description;
+            
+            
 
-            match error {
+            let (description, details) = match error {
                 DecoderError::NoLoadersConfigured(err) => {
                     // Translators: {} is replaced with a version number
-                    description = gettext_f(
+                    (gettext_f(
                         "No image loaders available. Maybe the “glycin-loaders” package with compatibility version “{}” is not installed.",
                         [format!("{}+", glycin::COMPAT_VERSION)],
-                    );
-
-                    details = err.to_string();
+                    ), err.to_string())
                 }
                 DecoderError::UnsupportedFormat(mime_type, err) => {
                     let content_type =
@@ -356,8 +354,7 @@ impl LpImagePage {
                     let mime_type_description =
                         gio::content_type_get_description(&content_type).to_string();
 
-                    description =
-                        if glycin::Loader::DEFAULT_MIME_TYPES.contains(&mime_type.as_str()) {
+                    (if glycin::Loader::DEFAULT_MIME_TYPES.contains(&mime_type.as_str()) {
                             // Translators: The first occurance of {} is replace with a description
                             // of the format and the second with an id
                             // (mime-type) of the format.
@@ -373,29 +370,22 @@ impl LpImagePage {
                                 "Unknown image format “{} ({}).”",
                                 [&mime_type_description, &mime_type],
                             )
-                        };
-
-                    details = err.to_string();
+                        }, err.to_string())
                 }
                 DecoderError::OutOfMemory(err) => {
-                    description =
-                        gettext("There is not enough free memory available to load this image.");
-                    details = err.to_string();
+                    (gettext("There is not enough free memory available to load this image."), err.to_string())
                 }
                 DecoderError::ImageSource(glib_err, err) => {
                     // Translators: The first occurance of {} is replace with a
                     // translated, more detailled error message.
-                    description =
-                        gettext_f("Failed to load image file: {}", [&glib_err.to_string()]);
-                    details = err.to_string();
+                    (gettext_f("Failed to load image file: {}", [&glib_err.to_string()]), err.to_string())
                 }
                 DecoderError::Generic(err) => {
-                    description = gettext(
+                    (gettext(
                         "Either the image file is corrupted or it contains unsupported elements.",
-                    );
-                    details = err.to_string();
+                    ), err.to_string())
                 }
-            }
+            };
 
             imp.error_more_info.connect_clicked(glib::clone!(
                 #[weak(rename_to = obj)]

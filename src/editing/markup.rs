@@ -420,11 +420,10 @@ pub fn draw(cr: &cairo::Context, shapes: &[Shape]) {
             tracing::warn!("Failed to draw shape: {err}");
         }
     }
-    if erases {
-        if let Err(err) = cr.pop_group_to_source().and_then(|()| cr.paint()) {
+    if erases
+        && let Err(err) = cr.pop_group_to_source().and_then(|()| cr.paint()) {
             tracing::warn!("Failed to draw markup layer: {err}");
         }
-    }
 }
 
 fn draw_shape(cr: &cairo::Context, shape: &Shape) -> Result<(), cairo::Error> {

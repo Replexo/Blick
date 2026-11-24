@@ -326,6 +326,7 @@ impl LpFileModel {
     }
 
     /// Returns `n` elements before and after given file
+    #[allow(clippy::result_unit_err)]
     pub fn files_around(
         &self,
         file: &gio::File,

@@ -2,6 +2,8 @@
 # Builds dist/Blink-<version>-<arch>.AppImage inside the deb image
 #
 # Image loading uses the host's glycin loaders, which sandbox each image.
+# Videos play with the host's GStreamer and its plugins, so the GStreamer
+# libraries are left out of the AppImage to match the host's plugins.
 set -eu
 cd /src
 version=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
@@ -30,5 +32,6 @@ cd /opt/linuxdeploy
 ./linuxdeploy-x86_64.AppImage --appdir "$appdir" \
     --desktop-file "$appdir/usr/share/applications/io.github.Replexo.Blink.desktop" \
     --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/io.github.Replexo.Blink.svg" \
+    --exclude-library 'libgst*' \
     --plugin gtk --output appimage
 mv Blink*.zsync /src/dist/ 2>/dev/null || true

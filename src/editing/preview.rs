@@ -22,6 +22,7 @@ use gufo::common::orientation::Rotation;
 use super::geometry::Geometry;
 use crate::deps::*;
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply_operations(
     node: gsk::RenderNode,
     width: u32,

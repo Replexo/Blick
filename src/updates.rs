@@ -285,12 +285,11 @@ pub async fn download(
     }
     output.close_future(glib::Priority::DEFAULT).await?;
 
-    if let Some(expected) = expected {
-        if checksum.string().as_deref() != Some(expected.as_str()) {
+    if let Some(expected) = expected
+        && checksum.string().as_deref() != Some(expected.as_str()) {
             let _ = std::fs::remove_file(&target);
             anyhow::bail!("Checksum of {} does not match", asset.name);
         }
-    }
 
     if let InstallKind::AppImage(path) = kind {
         use std::os::unix::fs::PermissionsExt;

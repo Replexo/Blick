@@ -1013,11 +1013,10 @@ mod imp {
         /// as wide as the stroke they draw
         fn tool_cursor(&self, tool: Tool) -> Option<gdk::Cursor> {
             let key = self.size_cursor_key().filter(|(t, _)| *t == tool)?;
-            if let Some((cached, cursor)) = self.size_cursor.borrow().as_ref() {
-                if *cached == key {
+            if let Some((cached, cursor)) = self.size_cursor.borrow().as_ref()
+                && *cached == key {
                     return Some(cursor.clone());
                 }
-            }
 
             let (_, diameter) = key;
             let line = tool == Tool::Highlighter;

@@ -161,6 +161,9 @@ pub enum LpOrientation {
     Portrait,
 }
 
+/// Zoom and the image point at the middle of the view
+type ZoomPoint = (f64, (f64, f64));
+
 mod imp {
     use super::*;
 
@@ -246,7 +249,7 @@ mod imp {
         pub(super) crop_zoom: OnceCell<adw::TimedAnimation>,
         /// Zoom and image point at the middle of the view, at the start and
         /// end of `crop_zoom`
-        crop_zoom_path: Cell<((f64, (f64, f64)), (f64, (f64, f64)))>,
+        crop_zoom_path: Cell<(ZoomPoint, ZoomPoint)>,
     }
 
     #[glib::object_subclass]
