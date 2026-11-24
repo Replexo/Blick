@@ -761,6 +761,8 @@ mod imp {
             let obj = self.obj();
             let shortcuts = gtk::ShortcutController::new();
             shortcuts.set_scope(gtk::ShortcutScope::Global);
+            // Before a focused button, so Space plays instead of pressing it
+            shortcuts.set_propagation_phase(gtk::PropagationPhase::Capture);
 
             let add = |key: gdk::Key, callback: fn(&super::LpVideoPlayer)| {
                 shortcuts.add_shortcut(gtk::Shortcut::new(
@@ -1282,6 +1284,11 @@ impl LpVideoPlayer {
 
     pub fn position(&self) -> Option<gst::ClockTime> {
         self.imp().position()
+    }
+
+    /// Height of the controls, which other bars keep clear of
+    pub fn controls_height(&self) -> i32 {
+        self.imp().controls.height()
     }
 
     pub fn duration(&self) -> Option<gst::ClockTime> {

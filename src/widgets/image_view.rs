@@ -812,6 +812,11 @@ impl LpImageView {
         if !imp.folder_strip.is_visible() {
             return;
         }
+        // On a video the strip sits above the player's controls
+        let lift = self
+            .current_video()
+            .map_or(0, |video| video.controls_height());
+        imp.folder_strip.set_margin_bottom(lift);
         imp.folder_strip.set_can_target(true);
         self.fade_folder_strip(1.);
 
