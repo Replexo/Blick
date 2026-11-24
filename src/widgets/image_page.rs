@@ -110,7 +110,7 @@ mod imp {
 
             // Play button for motion photos
             self.motion_button
-                .set_icon_name("media-playback-start-symbolic");
+                .set_icon_name("glance-play-symbolic");
             self.motion_button
                 .set_tooltip_text(Some(&gettext("Play Motion Photo")));
             self.motion_button.add_css_class("osd");

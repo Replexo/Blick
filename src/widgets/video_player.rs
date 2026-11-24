@@ -174,7 +174,7 @@ mod imp {
             self.picture.set_vexpand(true);
             self.picture.add_css_class("video");
 
-            self.play_button.set_icon_name("media-playback-start-symbolic");
+            self.play_button.set_icon_name("glance-play-symbolic");
             self.play_button.set_tooltip_text(Some(&gettext("Play")));
             self.play_button.add_css_class("flat");
             self.play_button.add_css_class("circular");
@@ -229,7 +229,7 @@ mod imp {
                 }
             ));
 
-            self.mute_button.set_icon_name("audio-volume-muted-symbolic");
+            self.mute_button.set_icon_name("glance-volume-muted-symbolic");
             self.mute_button.set_tooltip_text(Some(&gettext("Mute")));
             self.mute_button.add_css_class("flat");
             self.mute_button.add_css_class("circular");
@@ -301,7 +301,7 @@ mod imp {
             loop_section.append(Some(&gettext("_Loop")), Some("video.loop"));
             menu.append_section(None, &loop_section);
             let options = gtk::MenuButton::new();
-            options.set_icon_name("view-more-symbolic");
+            options.set_icon_name("glance-more-symbolic");
             options.set_menu_model(Some(&menu));
             options.set_tooltip_text(Some(&gettext("Playback Options")));
             options.set_direction(gtk::ArrowType::Up);
@@ -541,9 +541,9 @@ mod imp {
             delay_title.set_xalign(0.);
             self.delay_label.add_css_class("numeric");
             self.delay_label.set_width_chars(7);
-            let earlier = gtk::Button::from_icon_name("list-remove-symbolic");
+            let earlier = gtk::Button::from_icon_name("minus-large-symbolic");
             earlier.set_tooltip_text(Some(&gettext("Show Subtitles Earlier")));
-            let later = gtk::Button::from_icon_name("list-add-symbolic");
+            let later = gtk::Button::from_icon_name("plus-large-symbolic");
             later.set_tooltip_text(Some(&gettext("Show Subtitles Later")));
             for button in [&earlier, &later] {
                 button.add_css_class("flat");
@@ -568,7 +568,7 @@ mod imp {
             let popover = gtk::PopoverMenu::from_model(Some(&self.tracks_menu));
             popover.add_child(&delay_box, "delay");
             let button = gtk::MenuButton::new();
-            button.set_icon_name("media-view-subtitles-symbolic");
+            button.set_icon_name("glance-subtitles-symbolic");
             button.set_popover(Some(&popover));
             button.set_tooltip_text(Some(&gettext("Subtitles and Audio")));
             button.set_direction(gtk::ArrowType::Up);
@@ -827,13 +827,11 @@ mod imp {
                 volume.set_mute(MUTED.get());
             }
             let icon = if MUTED.get() || VOLUME.get() <= 0. {
-                "audio-volume-muted-symbolic"
-            } else if VOLUME.get() < 0.34 {
-                "audio-volume-low-symbolic"
-            } else if VOLUME.get() < 0.67 {
-                "audio-volume-medium-symbolic"
+                "glance-volume-muted-symbolic"
+            } else if VOLUME.get() < 0.5 {
+                "glance-volume-low-symbolic"
             } else {
-                "audio-volume-high-symbolic"
+                "glance-volume-high-symbolic"
             };
             self.volume_button.set_icon_name(icon);
             if self.mute_button.is_active() != MUTED.get() {
@@ -1101,6 +1099,12 @@ impl LpVideoPlayer {
             .property("video-sink", &video_sink)
             .build()?;
 
+        // Turned as the video's rotation metadata says, like phone videos
+        if let Ok(flip) = gst::ElementFactory::make("videoflip").build() {
+            flip.set_property_from_str("video-direction", "auto");
+            playbin.set_property("video-filter", &flip);
+        }
+
         // Subtitles with the same name as the video
         if let Some(subtitle) = sidecar_subtitle(file) {
             playbin.set_property("suburi", subtitle.uri().as_str());
@@ -1233,7 +1237,7 @@ impl LpVideoPlayer {
                 image.zoom_best_fit();
             }
             imp.play_button
-                .set_icon_name("media-playback-pause-symbolic");
+                .set_icon_name("glance-pause-symbolic");
             imp.play_button.set_tooltip_text(Some(&gettext("Pause")));
             imp.inhibit();
             if imp.tick.borrow().is_none() {
@@ -1254,7 +1258,7 @@ impl LpVideoPlayer {
             }
         } else {
             imp.play_button
-                .set_icon_name("media-playback-start-symbolic");
+                .set_icon_name("glance-play-symbolic");
             imp.play_button.set_tooltip_text(Some(&gettext("Play")));
             imp.uninhibit();
             if let Some(source) = imp.tick.take() {

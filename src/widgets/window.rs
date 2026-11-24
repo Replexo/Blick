@@ -289,6 +289,19 @@ impl LpWindow {
     }
 
     pub fn show_edit(&self) {
+        // Videos have their own editor
+        if let Some(file) = self
+            .image_view()
+            .current_video()
+            .and_then(|video| video.file())
+        {
+            tracing::debug!("Opening the video editor for {}", file.uri());
+            let edit_child = &*self.imp().edit_window_child;
+            edit_child.set_child(Some(&crate::widgets::LpVideoEditor::new(&file)));
+            self.imp().stack.set_visible_child(edit_child);
+            self.set_fullscreened(false);
+            return;
+        }
         if let Some(image) = self.image_view().current_image() {
             let edit_child = &*self.imp().edit_window_child;
 
@@ -298,6 +311,36 @@ impl LpWindow {
         } else {
             tracing::error!("Can't open image editor since no current image exists");
         }
+    }
+
+    /// Shows `file` and opens it in the image editor once it has loaded
+    pub fn open_in_editor(&self, file: gio::File) {
+        self.show_specific_image(file.clone());
+        let tries = std::cell::Cell::new(0);
+        glib::timeout_add_local(
+            std::time::Duration::from_millis(100),
+            glib::clone!(
+                #[weak(rename_to = win)]
+                self,
+                #[upgrade_or]
+                glib::ControlFlow::Break,
+                move || {
+                    tries.set(tries.get() + 1);
+                    let ready = win
+                        .image_view()
+                        .current_image()
+                        .is_some_and(|image| image.file().as_ref() == Some(&file) && image.editable());
+                    if ready {
+                        win.show_edit();
+                    }
+                    if ready || tries.get() > 50 {
+                        glib::ControlFlow::Break
+                    } else {
+                        glib::ControlFlow::Continue
+                    }
+                }
+            ),
+        );
     }
 
     pub fn image_view(&self) -> LpImageView {

@@ -68,6 +68,7 @@ pub mod ocr;
 pub mod opensubtitles;
 pub mod updates;
 pub mod util;
+pub mod video_export;
 pub mod widgets;
 
 mod deps {

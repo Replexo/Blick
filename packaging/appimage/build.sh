@@ -4,6 +4,7 @@
 # Image loading uses the host's glycin loaders, which sandbox each image.
 # Videos play with the host's GStreamer and its plugins, so the GStreamer
 # libraries are left out of the AppImage to match the host's plugins.
+# Editing videos uses the host's ffmpeg.
 set -eu
 cd /src
 version=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)

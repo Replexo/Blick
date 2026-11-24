@@ -37,7 +37,9 @@ mod sliding_view;
 pub(crate) mod subtitle_search;
 mod text_layer;
 mod thumbnail_strip;
+pub(crate) mod video_editor;
 pub(crate) mod video_player;
+mod video_trimmer;
 mod window;
 
 pub use drag_overlay::LpDragOverlay;
@@ -55,5 +57,7 @@ pub use shy_bin::LpShyBin;
 pub use sliding_view::LpSlidingView;
 pub use text_layer::LpTextLayer;
 pub use thumbnail_strip::LpThumbnailStrip;
+pub use video_editor::LpVideoEditor;
 pub use video_player::LpVideoPlayer;
+pub use video_trimmer::LpVideoTrimmer;
 pub use window::LpWindow;

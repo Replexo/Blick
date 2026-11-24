@@ -217,6 +217,47 @@
             ]
         },
         {
+            "name": "x264",
+            "config-opts": [
+                "--enable-shared",
+                "--enable-pic",
+                "--disable-cli"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://code.videolan.org/videolan/x264.git",
+                    "commit": "b35605ace3ddf7c1a5d67a2eb553f034aef41d55"
+                }
+            ]
+        },
+        {
+            "name": "ffmpeg",
+            "config-opts": [
+                "--enable-gpl",
+                "--enable-shared",
+                "--disable-static",
+                "--disable-doc",
+                "--disable-ffplay",
+                "--enable-libx264",
+                "--enable-libvpx",
+                "--enable-libopus",
+                "--enable-libdav1d"
+            ],
+            "cleanup": [
+                "/include",
+                "/lib/pkgconfig",
+                "/share/ffmpeg/examples"
+            ],
+            "sources": [
+                {
+                    "type": "archive",
+                    "url": "https://ffmpeg.org/releases/ffmpeg-7.1.2.tar.xz",
+                    "sha256": "089bc60fb59d6aecc5d994ff530fd0dcb3ee39aa55867849a2bbc4e555f9c304"
+                }
+            ]
+        },
+        {
             "name": "blink",
             "buildsystem": "meson",
             "config-opts": [

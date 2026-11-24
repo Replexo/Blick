@@ -102,7 +102,7 @@ pub fn present(player: &LpVideoPlayer, video: &gio::File) {
     scrolled.set_hscrollbar_policy(gtk::PolicyType::Never);
 
     let status = adw::StatusPage::new();
-    status.set_icon_name(Some("media-view-subtitles-symbolic"));
+    status.set_icon_name(Some("glance-subtitles-symbolic"));
     status.add_css_class("compact");
     let spinner = adw::Spinner::new();
     spinner.set_size_request(32, 32);
@@ -244,7 +244,7 @@ impl Search {
                 badge.set_valign(gtk::Align::Center);
                 row.add_suffix(&badge);
             }
-            let button = gtk::Button::from_icon_name("folder-download-symbolic");
+            let button = gtk::Button::from_icon_name("glance-download-symbolic");
             button.set_tooltip_text(Some(&gettext("Download")));
             button.add_css_class("flat");
             button.set_valign(gtk::Align::Center);
