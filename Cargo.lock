@@ -243,6 +243,41 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
+name = "blink"
+version = "1.2.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "ashpd",
+ "async-channel",
+ "async-lock",
+ "cairo-rs",
+ "chrono",
+ "gettext-rs",
+ "gettext-sys",
+ "gio",
+ "glycin",
+ "gtk4",
+ "gufo",
+ "gvdb-macros",
+ "image",
+ "indexmap",
+ "libadwaita",
+ "libc",
+ "libgweather",
+ "moxcms",
+ "pango",
+ "pangocairo",
+ "pkg-config",
+ "serde_json",
+ "soup3",
+ "strum",
+ "thiserror",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "block"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -899,41 +934,6 @@ dependencies = [
  "gobject-sys",
  "libc",
  "system-deps 7.0.8",
-]
-
-[[package]]
-name = "glance"
-version = "1.2.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "ashpd",
- "async-channel",
- "async-lock",
- "cairo-rs",
- "chrono",
- "gettext-rs",
- "gettext-sys",
- "gio",
- "glycin",
- "gtk4",
- "gufo",
- "gvdb-macros",
- "image",
- "indexmap",
- "libadwaita",
- "libc",
- "libgweather",
- "moxcms",
- "pango",
- "pangocairo",
- "pkg-config",
- "serde_json",
- "soup3",
- "strum",
- "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 # Contributing
 
-Bug reports and ideas are welcome in the [issue tracker](https://github.com/Replexo/Glance/issues). Please include the version from **About Glance** and, for crashes, the steps that lead to them.
+Bug reports and ideas are welcome in the [issue tracker](https://github.com/Replexo/Blink/issues). Please include the version from **About Blink** and, for crashes, the steps that lead to them.
 
 Problems that also happen in Loupe, such as an image format that fails to load, are best reported to [Loupe](https://gitlab.gnome.org/GNOME/loupe/-/issues) or [glycin](https://gitlab.gnome.org/GNOME/glycin/-/issues) directly.
 

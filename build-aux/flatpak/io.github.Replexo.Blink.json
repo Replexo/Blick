@@ -1,21 +1,20 @@
 {
-    "id": "io.github.Replexo.Glance.Devel",
+    "id": "io.github.Replexo.Blink",
     "runtime": "org.gnome.Platform",
-    "runtime-version": "master",
+    "runtime-version": "51",
     "sdk": "org.gnome.Sdk",
     "sdk-extensions": [
         "org.freedesktop.Sdk.Extension.rust-stable",
         "org.freedesktop.Sdk.Extension.llvm22"
     ],
-    "command": "glance",
+    "command": "blink",
     "finish-args": [
         "--share=ipc",
+        "--share=network",
         "--socket=fallback-x11",
         "--socket=wayland",
         "--device=dri",
         "--filesystem=host",
-        "--env=RUST_BACKTRACE=full",
-        "--env=RUST_LOG=debug",
         "--talk-name=org.gtk.vfs.*",
         "--filesystem=xdg-run/gvfs",
         "--filesystem=xdg-run/gvfsd"
@@ -26,7 +25,6 @@
             "--share=network"
         ],
         "env": {
-            "RUSTFLAGS": "-C force-frame-pointers=yes",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER": "clang",
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "clang",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS": "-C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold",
@@ -215,11 +213,11 @@
             ]
         },
         {
-            "name": "glance",
+            "name": "blink",
             "buildsystem": "meson",
             "config-opts": [
-                "-Dprofile=dev",
-                "-Dapp_id_suffix=.Devel"
+                "-Dprofile=release",
+                "-Dupdate_check=true"
             ],
             "sources": [
                 {

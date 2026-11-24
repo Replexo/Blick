@@ -212,7 +212,7 @@ fn check(parts: &Parts) {
 }
 
 fn show_up_to_date(parts: &Parts) {
-    parts.title.set_label(&gettext("Glance Is Up to Date"));
+    parts.title.set_label(&gettext("Blink Is Up to Date"));
     // Translators: {} is replaced with a version number
     parts
         .subtitle
@@ -237,7 +237,7 @@ fn show_release(parts: &Parts, release: Release) {
     // Translators: {} is replaced with a version number
     parts
         .title
-        .set_label(&gettext_f("Glance {} Is Available", [&release.version]));
+        .set_label(&gettext_f("Blink {} Is Available", [&release.version]));
     // Translators: {} is replaced with a version number
     parts
         .subtitle
@@ -309,8 +309,8 @@ fn install(parts: &Parts, release: Release, kind: InstallKind) {
             let path = path.clone();
             parts
                 .subtitle
-                .set_label(&gettext("Restart Glance to use the new version."));
-            set_primary(&parts, &gettext("Restart Glance"), move |parts| {
+                .set_label(&gettext("Restart Blink to use the new version."));
+            set_primary(&parts, &gettext("Restart Blink"), move |parts| {
                 parts.dialog.close();
                 restart(path.clone());
             });
@@ -336,7 +336,7 @@ fn install(parts: &Parts, release: Release, kind: InstallKind) {
 }
 
 /// Closes all windows, asking about unsaved edits, and starts `path` once
-/// Glance has quit
+/// Blink has quit
 ///
 /// The new copy starts only after this one gave up its name on the session
 /// bus, as it would otherwise hand over to this copy and exit.
@@ -349,7 +349,7 @@ fn restart(path: std::path::PathBuf) {
             .arg(&path)
             .spawn();
         if let Err(err) = result {
-            tracing::warn!("Could not restart Glance: {err}");
+            tracing::warn!("Could not restart Blink: {err}");
         }
     });
     app.activate_action("quit", None);

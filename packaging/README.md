@@ -18,4 +18,4 @@ The Docker images are built on the first run and cached; Cargo downloads are kep
 
 The AppImage carries Tesseract language data but uses the host's glycin loaders to open images, so `glycin-loaders` must be installed.
 
-The Flatpak bundle is built from `build-aux/flatpak/io.github.Replexo.Glance.json`. Keep the update checker off in the Flathub manifest: Flathub doesn't allow apps to update themselves.
+The Flatpak bundle is built from `build-aux/flatpak/io.github.Replexo.Blink.json`. Keep the update checker off in the Flathub manifest: Flathub doesn't allow apps to update themselves.

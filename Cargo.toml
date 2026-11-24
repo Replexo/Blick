@@ -1,5 +1,5 @@
 [package]
-name = "glance"
+name = "blink"
 version = "1.2.0"
 edition = "2024"
 rust-version = "1.93"

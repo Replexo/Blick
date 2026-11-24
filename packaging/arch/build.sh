@@ -1,20 +1,20 @@
 #!/bin/sh
-# Builds dist/glance-viewer-<version>-<rel>-<arch>.pkg.tar.zst inside the arch image
+# Builds dist/blink-<version>-<rel>-<arch>.pkg.tar.zst inside the arch image
 set -eu
 version=$(sed -n "s/^  version: '\(.*\)',/\1/p" /src/meson.build)
 work=/home/builder/pkg
 rm -rf "$work"
 mkdir -p "$work"
 # makepkg builds from a git repository of the sources
-cp -r /src "$work/glance-src"
-rm -rf "$work/glance-src/dist"
-git -C "$work/glance-src" init -q
-git -C "$work/glance-src" add -A
-git -C "$work/glance-src" -c user.name=build -c user.email=build@localhost commit -qm build
+cp -r /src "$work/blink-src"
+rm -rf "$work/blink-src/dist"
+git -C "$work/blink-src" init -q
+git -C "$work/blink-src" add -A
+git -C "$work/blink-src" -c user.name=build -c user.email=build@localhost commit -qm build
 sed -e "s/^pkgver=.*/pkgver=$version/" \
-    -e "s|^source=.*|source=(\"glance-viewer::git+file://$work/glance-src\")|" \
+    -e "s|^source=.*|source=(\"blink::git+file://$work/blink-src\")|" \
     /src/packaging/arch/PKGBUILD > "$work/PKGBUILD"
 chown -R builder "$work"
 cd "$work"
 su builder -c "CARGO_HOME=/home/builder/.cargo makepkg -f"
-cp glance-viewer-*.pkg.tar.zst /src/dist/
+cp blink-*.pkg.tar.zst /src/dist/

@@ -28,7 +28,7 @@ use soup::prelude::*;
 use crate::config;
 use crate::deps::*;
 
-const LATEST_RELEASE: &str = "https://api.github.com/repos/Replexo/Glance/releases/latest";
+const LATEST_RELEASE: &str = "https://api.github.com/repos/Replexo/Blink/releases/latest";
 
 /// A release published on GitHub
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ impl Release {
         version_parts(&self.version) > version_parts(config::VERSION)
     }
 
-    /// The download that fits how Glance is installed
+    /// The download that fits how Blink is installed
     pub fn asset_for(&self, kind: &InstallKind) -> Option<&Asset> {
         let suffix = kind.suffix()?;
         let arch_names: &[&str] = match std::env::consts::ARCH {
@@ -82,7 +82,7 @@ impl Release {
     }
 }
 
-/// How this copy of Glance was installed
+/// How this copy of Blink was installed
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallKind {
     Flatpak,
@@ -144,7 +144,7 @@ fn version_parts(version: &str) -> Vec<u64> {
 
 fn session() -> soup::Session {
     let session = soup::Session::new();
-    session.set_user_agent(&format!("Glance/{}", config::VERSION));
+    session.set_user_agent(&format!("Blink/{}", config::VERSION));
     session
 }
 
@@ -229,7 +229,7 @@ pub async fn download(
             .ok_or_else(|| anyhow::anyhow!("AppImage has no folder"))?
             .join(format!(".{}.part", asset.name)),
         _ => {
-            let dir = glib::user_cache_dir().join("glance-updates");
+            let dir = glib::user_cache_dir().join("blink-updates");
             std::fs::create_dir_all(&dir)?;
             dir.join(&asset.name)
         }

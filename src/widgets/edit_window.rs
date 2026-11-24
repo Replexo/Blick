@@ -1537,7 +1537,7 @@ mod tests {
     fn write_tmp_file_is_exclusive_and_keeps_mode() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("glance-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("blink-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let original = dir.join("photo.png");
         std::fs::write(&original, b"old").unwrap();
@@ -1585,7 +1585,7 @@ mod tests {
     fn write_tmp_file_read_only_original() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("glance-test-ro-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("blink-test-ro-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let original = dir.join("photo.png");
         std::fs::write(&original, b"old").unwrap();

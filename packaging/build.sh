@@ -13,12 +13,12 @@ trap 'rm -rf "$src"' EXIT
 git archive HEAD | tar -x -C "$src"
 
 in_image() {
-    docker build -q -t "glance-build-$1" "packaging/$1" >/dev/null
+    docker build -q -t "blink-build-$1" "packaging/$1" >/dev/null
     cache=/root/.cargo/registry
     [ "$1" = arch ] && cache=/home/builder/.cargo/registry
     docker run --rm -v "$src:/src" -v "$PWD/dist:/src/dist" \
         -v "$PWD/packaging/.cargo-cache/$1:$cache" \
-        "glance-build-$1" sh "/src/packaging/$2/build.sh"
+        "blink-build-$1" sh "/src/packaging/$2/build.sh"
 }
 
 for target in $targets; do

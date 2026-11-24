@@ -79,7 +79,7 @@
         <attribute name="action">app.shortcuts</attribute>
       </item>
       <item>
-        <attribute name="label" translatable="yes">_About Glance</attribute>
+        <attribute name="label" translatable="yes">_About Blink</attribute>
         <attribute name="action">win.about</attribute>
       </item>
     </section>

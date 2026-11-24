@@ -15,7 +15,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Makes Glance the default app for the image types it opens
+//! Makes Blink the default app for the image types it opens
 //!
 //! Writes the "Default Applications" group of `mimeapps.list`, which GNOME and
 //! KDE both read. Inside Flatpak, GIO would only change the sandbox's own copy,
@@ -94,7 +94,7 @@ fn without(apps: &str, id: &str) -> String {
         .collect()
 }
 
-/// Whether Glance already opens JPEG and PNG images by default
+/// Whether Blink already opens JPEG and PNG images by default
 pub fn is_default() -> bool {
     let id = desktop_id();
     let types = ["image/jpeg", "image/png"];
@@ -116,7 +116,7 @@ pub fn is_default() -> bool {
     })
 }
 
-/// Sets Glance as the default for every image type it opens, and returns
+/// Sets Blink as the default for every image type it opens, and returns
 /// how many types changed
 pub fn make_default() -> anyhow::Result<usize> {
     let types = mime_types()?;
@@ -126,7 +126,7 @@ pub fn make_default() -> anyhow::Result<usize> {
 
     let mut changed = 0;
     for mime in &types {
-        // Other apps stay as fallbacks after Glance
+        // Other apps stay as fallbacks after Blink
         let others = key_file
             .string(DEFAULTS, mime)
             .map(|apps| without(&apps, &id))

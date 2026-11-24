@@ -29,12 +29,12 @@ pub async fn dialog() -> adw::AboutDialog {
     // an object and set all relevant properties very
     // easily in a way that's idiomatic to Rust.
     let dialog = adw::AboutDialog::builder()
-        .application_name("Glance")
+        .application_name("Blink")
         .application_icon(config::APP_ID)
         .version(config::VERSION)
         .developer_name("Replexo")
-        .website("https://github.com/Replexo/Glance")
-        .issue_url("https://github.com/Replexo/Glance/issues")
+        .website("https://github.com/Replexo/Blink")
+        .issue_url("https://github.com/Replexo/Blink/issues")
         .comments("An image viewer with editing, based on Loupe")
         .developers(["Replexo"])
         // Translators: Replace "translator-credits" with your names, one name per line

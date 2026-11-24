@@ -1,24 +1,24 @@
 <p align="center">
-  <img src="data/icons/hicolor/scalable/apps/io.github.Replexo.Glance.svg" width="80" alt="Glance icon">
+  <img src="data/icons/hicolor/scalable/apps/io.github.Replexo.Blink.svg" width="80" alt="Blink icon">
 </p>
 
 <div align="center">
 
-# Glance
+# Blink
 
 **Image viewer and photo editor for Linux**
 
-[![Latest release](https://img.shields.io/github/v/release/Replexo/Glance?label=release)](https://github.com/Replexo/Glance/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/Replexo/Blink?label=release)](https://github.com/Replexo/Blink/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](COPYING.md)
 [![GTK 4 and libadwaita](https://img.shields.io/badge/GTK%204-libadwaita-4a86cf)](https://gtk.org)
 
-<img src="data/screenshots/promo.webp" width="800" alt="Glance image viewer and photo editor marking up, adjusting and cropping a photo on Linux">
+<img src="data/screenshots/promo.webp" width="800" alt="Blink image viewer and photo editor marking up, adjusting and cropping a photo on Linux">
 
 </div>
 
-Glance is a fast image viewer and photo editor for Linux and GNOME. Open a picture, annotate it, adjust its colours, crop it, copy the text in it, and save, all in the same window. It is a fork of [Loupe](https://gitlab.gnome.org/GNOME/loupe), the GNOME image viewer, so browsing stays fast, sandboxed and touch-friendly.
+Blink is a fast image viewer and photo editor for Linux and GNOME. Open a picture, annotate it, adjust its colours, crop it, copy the text in it, and save, all in the same window. It is a fork of [Loupe](https://gitlab.gnome.org/GNOME/loupe), the GNOME image viewer, so browsing stays fast, sandboxed and touch-friendly.
 
-Glance runs on any Linux desktop and comes as a Flatpak, an AppImage, and packages for Debian and Ubuntu, Fedora and Arch Linux.
+Blink runs on any Linux desktop and comes as a Flatpak, an AppImage, and packages for Debian and Ubuntu, Fedora and Arch Linux.
 
 ## Features
 
@@ -46,43 +46,43 @@ Free or fixed aspect ratios, rotate, flip and resize. Straighten tilted photos, 
 
 ### Live text (OCR)
 
-Select and copy text straight from any image: screenshots, scanned pages, photos of signs, screens and documents. Glance finds the text by itself with [Tesseract](https://github.com/tesseract-ocr/tesseract), also when it is turned, tilted or slightly curved, and everything stays on your computer.
+Select and copy text straight from any image: screenshots, scanned pages, photos of signs, screens and documents. Blink finds the text by itself with [Tesseract](https://github.com/tesseract-ocr/tesseract), also when it is turned, tilted or slightly curved, and everything stays on your computer.
 
 It reads English, Spanish, French, German, Portuguese, Russian, Polish and Turkish, using your device language together with English.
 
-<img src="data/screenshots/live-text.webp" width="640" alt="Copying text from a photo of a recipe with Glance live text OCR">
+<img src="data/screenshots/live-text.webp" width="640" alt="Copying text from a photo of a recipe with Blink live text OCR">
 
 ### And more
 
 - Undo and redo across every kind of edit.
 - Zoom inside the editor for detailed work.
 - **Save a Copy**, or **Replace Original** and move the old file to the trash.
-- **Make Default Image Viewer** in the main menu opens every supported image type with Glance.
+- **Make Default Image Viewer** in the main menu opens every supported image type with Blink.
 - The Flatpak and AppImage can check for new versions from the main menu.
 
 ### Languages
 
-Glance is fully translated into Spanish, German, French, Brazilian Portuguese, Russian, Polish and Turkish. The viewer is also translated into the other 52 languages of Loupe.
+Blink is fully translated into Spanish, German, French, Brazilian Portuguese, Russian, Polish and Turkish. The viewer is also translated into the other 52 languages of Loupe.
 
 ## Install
 
-Download the file for your system from the [latest release](https://github.com/Replexo/Glance/releases/latest):
+Download the file for your system from the [latest release](https://github.com/Replexo/Blink/releases/latest):
 
 | System | File | Install |
 |---|---|---|
-| Any Linux (Flatpak) | [`Glance-1.2-x86_64.flatpak`](https://github.com/Replexo/Glance/releases/latest/download/Glance-1.2-x86_64.flatpak) | `flatpak install --user Glance-1.2-x86_64.flatpak` |
-| Any Linux (AppImage) | [`Glance-1.2-x86_64.AppImage`](https://github.com/Replexo/Glance/releases/latest/download/Glance-1.2-x86_64.AppImage) | `chmod +x Glance-1.2-x86_64.AppImage`, then run it |
-| Ubuntu 25.10 and newer | [`glance-viewer_1.2_amd64.deb`](https://github.com/Replexo/Glance/releases/latest/download/glance-viewer_1.2_amd64.deb) | `sudo apt install ./glance-viewer_1.2_amd64.deb` |
-| Fedora 43 and newer | [`glance-viewer-1.2-1.fc43.x86_64.rpm`](https://github.com/Replexo/Glance/releases/latest/download/glance-viewer-1.2-1.fc43.x86_64.rpm) | `sudo dnf install ./glance-viewer-1.2-1.fc43.x86_64.rpm` |
-| Arch Linux | [`glance-viewer-1.2-1-x86_64.pkg.tar.zst`](https://github.com/Replexo/Glance/releases/latest/download/glance-viewer-1.2-1-x86_64.pkg.tar.zst) | `sudo pacman -U glance-viewer-1.2-1-x86_64.pkg.tar.zst` |
+| Any Linux (Flatpak) | [`Blink-1.2-x86_64.flatpak`](https://github.com/Replexo/Blink/releases/latest/download/Blink-1.2-x86_64.flatpak) | `flatpak install --user Blink-1.2-x86_64.flatpak` |
+| Any Linux (AppImage) | [`Blink-1.2-x86_64.AppImage`](https://github.com/Replexo/Blink/releases/latest/download/Blink-1.2-x86_64.AppImage) | `chmod +x Blink-1.2-x86_64.AppImage`, then run it |
+| Ubuntu 25.10 and newer | [`blink_1.2_amd64.deb`](https://github.com/Replexo/Blink/releases/latest/download/blink_1.2_amd64.deb) | `sudo apt install ./blink_1.2_amd64.deb` |
+| Fedora 43 and newer | [`blink-1.2-1.fc43.x86_64.rpm`](https://github.com/Replexo/Blink/releases/latest/download/blink-1.2-1.fc43.x86_64.rpm) | `sudo dnf install ./blink-1.2-1.fc43.x86_64.rpm` |
+| Arch Linux | [`blink-1.2-1-x86_64.pkg.tar.zst`](https://github.com/Replexo/Blink/releases/latest/download/blink-1.2-1-x86_64.pkg.tar.zst) | `sudo pacman -U blink-1.2-1-x86_64.pkg.tar.zst` |
 
-The Flatpak uses the GNOME 51 runtime, which Flatpak downloads from [Flathub](https://flathub.org/setup) if you don't have it yet. Glance is coming to Flathub itself soon, with automatic updates. You can check your download against `SHA256SUMS` on the release page.
+The Flatpak uses the GNOME 51 runtime, which Flatpak downloads from [Flathub](https://flathub.org/setup) if you don't have it yet. Blink is coming to Flathub itself soon, with automatic updates. You can check your download against `SHA256SUMS` on the release page.
 
 To build it yourself instead, see [Build from source](#build-from-source).
 
 ### Privacy and network access
 
-Glance only goes online to check GitHub for updates. Your photos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Glance`. Once Glance is on Flathub, which handles updates itself, the update check and the network access will be removed.
+Blink only goes online to check GitHub for updates. Your photos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blink`. Once Blink is on Flathub, which handles updates itself, the update check and the network access will be removed.
 
 ## Keyboard shortcuts
 
@@ -115,7 +115,7 @@ ninja -C builddir install
 To build and install the Flatpak:
 
 ```sh
-flatpak-builder --user --install --install-deps-from=flathub build-flatpak build-aux/flatpak/io.github.Replexo.Glance.json
+flatpak-builder --user --install --install-deps-from=flathub build-flatpak build-aux/flatpak/io.github.Replexo.Blink.json
 ```
 
 To build a development version with its own app ID, so it can sit next to an installed release:
@@ -127,7 +127,7 @@ meson setup builddir -Dprofile=dev -Dapp_id_suffix=.Devel
 
 ## Contributing
 
-Bug reports and ideas are welcome in the [issue tracker](https://github.com/Replexo/Glance/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Bug reports and ideas are welcome in the [issue tracker](https://github.com/Replexo/Blink/issues). See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## Credits
 
@@ -139,4 +139,4 @@ Bug reports and ideas are welcome in the [issue tracker](https://github.com/Repl
 
 ## License
 
-Glance is free software, released under the [GNU General Public License, version 3 or later](COPYING.md).
+Blink is free software, released under the [GNU General Public License, version 3 or later](COPYING.md).

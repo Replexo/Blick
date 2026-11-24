@@ -6,7 +6,7 @@
 # Rafael Fontenelle <rafaelff@gnome.org>, 2023-2025.
 # Juliano de Souza Camargo <julianosc@pm.me>, 2024-2026.
 # Álvaro Burns <>, 2025-2026.
-# The Glance-specific strings still need review by a native speaker; corrections are welcome.
+# The Blink-specific strings still need review by a native speaker; corrections are welcome.
 #
 msgid ""
 msgstr ""
@@ -23,79 +23,79 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 "X-Generator: Gtranslator 50.0\n"
 
-#: data/io.github.Replexo.Glance.desktop.in.in:2
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:6
+#: data/io.github.Replexo.Blink.desktop.in.in:2
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:6
 #: src/widgets/image_window.rs:1008
-msgid "Glance"
-msgstr "Glance"
+msgid "Blink"
+msgstr "Blink"
 
-#: data/io.github.Replexo.Glance.desktop.in.in:3
+#: data/io.github.Replexo.Blink.desktop.in.in:3
 msgid "Image Viewer"
 msgstr "Visualizador de imagens"
 
-#: data/io.github.Replexo.Glance.desktop.in.in:4
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:10
+#: data/io.github.Replexo.Blink.desktop.in.in:4
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:10
 msgid "View and edit images"
 msgstr "Veja e edite imagens"
 
-#: data/io.github.Replexo.Glance.desktop.in.in:12
-msgid "Picture;Graphics;Loupe;Glance;"
-msgstr "Picture;Graphics;Loupe;Glance;Imagem;Foto;Gráfico;"
+#: data/io.github.Replexo.Blink.desktop.in.in:12
+msgid "Picture;Graphics;Loupe;Blink;"
+msgstr "Picture;Graphics;Loupe;Blink;Imagem;Foto;Gráfico;"
 
-#: data/io.github.Replexo.Glance.gschema.xml.in:6
+#: data/io.github.Replexo.Blink.gschema.xml.in:6
 msgid "Show the image properties sidebar"
 msgstr "Mostrar a barra lateral de propriedades da imagem"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:12
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:12
 msgid ""
-"Glance is an image viewer with built-in editing. Browse your images, view "
+"Blink is an image viewer with built-in editing. Browse your images, view "
 "their metadata, and make quick edits without opening a separate editor."
 msgstr ""
-"O Glance é um visualizador de imagens com edição integrada. Navegue pelas "
+"O Blink é um visualizador de imagens com edição integrada. Navegue pelas "
 "suas imagens, veja os metadados delas e faça edições rápidas sem abrir um "
 "editor separado."
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:14
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:14
 msgid ""
 "Mark up images with a brush, highlighter, lines, arrows, shapes and text"
 msgstr "Marque imagens com pincel, marca-texto, linhas, setas, formas e texto"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:15
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:15
 msgid "Adjust brightness, contrast, highlights, shadows and saturation"
 msgstr "Ajuste brilho, contraste, realces, sombras e saturação"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:16
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:16
 msgid "Crop to an aspect ratio, rotate, flip and resize"
 msgstr "Corte para uma proporção, gire, espelhe e redimensione"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:17
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:17
 msgid "Undo and redo every edit, and save a copy or replace the original"
 msgstr ""
 "Desfaça e refaça cada edição, e salve uma cópia ou substitua o original"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:19
-msgid "Glance is based on Loupe, the GNOME image viewer."
-msgstr "O Glance é baseado no Loupe, o visualizador de imagens do GNOME."
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:19
+msgid "Blink is based on Loupe, the GNOME image viewer."
+msgstr "O Blink é baseado no Loupe, o visualizador de imagens do GNOME."
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:28
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:28
 msgid "Marking up an image"
 msgstr "Marcando uma imagem"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:32
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:32
 msgid "Adjusting colours"
 msgstr "Ajustando cores"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:36
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:36
 msgid "Cropping"
 msgstr "Cortando"
 
-#: data/io.github.Replexo.Glance.metainfo.xml.in.in:76
+#: data/io.github.Replexo.Blink.metainfo.xml.in.in:76
 msgid ""
-"First release of Glance, based on Loupe 51.1. It adds Markup, Adjust and "
+"First release of Blink, based on Loupe 51.1. It adds Markup, Adjust and "
 "Crop editing views, undo and redo, zoom in the editor, and keyboard "
 "shortcuts for the markup tools."
 msgstr ""
-"Primeira versão do Glance, baseada no Loupe 51.1. Ela adiciona as telas de "
+"Primeira versão do Blink, baseada no Loupe 51.1. Ela adiciona as telas de "
 "edição Marcação, Ajustar e Cortar, desfazer e refazer, zoom no editor e "
 "atalhos de teclado para as ferramentas de marcação."
 
@@ -378,12 +378,12 @@ msgstr ""
 "Jhonata Fernandes <fjhonata14@gmail.com>"
 
 #: src/application.rs:226
-msgid "Glance is now the default image viewer"
-msgstr "O Glance agora é o visualizador de imagens padrão"
+msgid "Blink is now the default image viewer"
+msgstr "O Blink agora é o visualizador de imagens padrão"
 
 #: src/application.rs:235
-msgid "Could not make Glance the default image viewer"
-msgstr "Não foi possível tornar o Glance o visualizador de imagens padrão"
+msgid "Could not make Blink the default image viewer"
+msgstr "Não foi possível tornar o Blink o visualizador de imagens padrão"
 
 #: src/file_model.rs:211
 msgid "Could not list other files in directory."
@@ -1060,8 +1060,8 @@ msgid "_Keyboard Shortcuts"
 msgstr "_Atalhos do teclado"
 
 #: src/widgets/image_window.ui:82
-msgid "_About Glance"
-msgstr "_Sobre o Glance"
+msgid "_About Blink"
+msgstr "_Sobre o Blink"
 
 #: src/widgets/image_window.ui:152
 msgid "Toggle Fullscreen"
@@ -1405,8 +1405,8 @@ msgid "Close"
 msgstr "Fechar"
 
 #: src/widgets/update_dialog.rs:195
-msgid "Glance Is Up to Date"
-msgstr "O Glance está atualizado"
+msgid "Blink Is Up to Date"
+msgstr "O Blink está atualizado"
 
 #: src/widgets/update_dialog.rs:199
 #, rust-format
@@ -1427,8 +1427,8 @@ msgstr "Tentar novamente"
 
 #: src/widgets/update_dialog.rs:220
 #, rust-format
-msgid "Glance {} Is Available"
-msgstr "O Glance {} está disponível"
+msgid "Blink {} Is Available"
+msgstr "O Blink {} está disponível"
 
 #: src/widgets/update_dialog.rs:224
 #, rust-format
@@ -1456,12 +1456,12 @@ msgid "The download failed."
 msgstr "O download falhou."
 
 #: src/widgets/update_dialog.rs:283
-msgid "Restart Glance to use the new version."
-msgstr "Reinicie o Glance para usar a nova versão."
+msgid "Restart Blink to use the new version."
+msgstr "Reinicie o Blink para usar a nova versão."
 
 #: src/widgets/update_dialog.rs:284
-msgid "Restart Glance"
-msgstr "Reiniciar o Glance"
+msgid "Restart Blink"
+msgstr "Reiniciar o Blink"
 
 #: src/widgets/update_dialog.rs:306
 msgid "Finish installing in the window that opened."

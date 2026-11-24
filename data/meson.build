@@ -60,8 +60,8 @@ conf.set('MIME_TYPES', ';'.join(mime_types) + ';')
 
 desktop_file = i18n.merge_file(
   input: configure_file(
-    input: 'io.github.Replexo.Glance.desktop.in.in',
-    output: 'io.github.Replexo.Glance.desktop.in',
+    input: 'io.github.Replexo.Blink.desktop.in.in',
+    output: 'io.github.Replexo.Blink.desktop.in',
     configuration: conf,
   ),
   output: '@0@.desktop'.format(app_id),
@@ -72,7 +72,7 @@ desktop_file = i18n.merge_file(
 )
 
 configure_file(
-  input: 'io.github.Replexo.Glance.service.in',
+  input: 'io.github.Replexo.Blink.service.in',
   output: '@0@.service'.format(app_id),
   configuration: conf,
   install: true,
@@ -86,8 +86,8 @@ endif
 
 appstream_file = i18n.merge_file(
   input: configure_file(
-    input: 'io.github.Replexo.Glance.metainfo.xml.in.in',
-    output: 'io.github.Replexo.Glance.metainfo.xml.in',
+    input: 'io.github.Replexo.Blink.metainfo.xml.in.in',
+    output: 'io.github.Replexo.Blink.metainfo.xml.in',
     configuration: conf,
   ),
   output: '@0@.metainfo.xml'.format(app_id),
@@ -114,7 +114,7 @@ gschema_conf = configuration_data()
 gschema_conf.set('app-id', app_id)
 gschema_conf.set('gettext-package', meson.project_name())
 configure_file(
-  input: 'io.github.Replexo.Glance.gschema.xml.in',
+  input: 'io.github.Replexo.Blink.gschema.xml.in',
   output: '@0@.gschema.xml'.format(app_id),
   configuration: gschema_conf,
   install: true,
