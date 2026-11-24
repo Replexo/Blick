@@ -16,7 +16,7 @@
 
 </div>
 
-Blink is a fast image viewer and photo editor for Linux and GNOME. Open a picture, annotate it, adjust its colours, crop it, copy the text in it, and save, all in the same window. It is a fork of [Loupe](https://gitlab.gnome.org/GNOME/loupe), the GNOME image viewer, so browsing stays fast, sandboxed and touch-friendly.
+Blink is a fast image viewer, video player and photo and video editor for Linux and GNOME. Open a picture, annotate it, adjust its colours, crop it, copy the text in it, and save, all in the same window. Videos play in the same window and can be trimmed, muted, rotated and saved smaller. It is a fork of [Loupe](https://gitlab.gnome.org/GNOME/loupe), the GNOME image viewer, so browsing stays fast, sandboxed and touch-friendly.
 
 Blink runs on any Linux desktop and comes as a Flatpak, an AppImage, and packages for Debian and Ubuntu, Fedora and Arch Linux.
 
@@ -27,6 +27,18 @@ Blink runs on any Linux desktop and comes as a Flatpak, an AppImage, and package
 Everything you know from Loupe: fast and sandboxed image loading, smooth zoom and gestures, image metadata, printing and setting a picture as the background.
 
 A strip of thumbnails below the photo lets you jump to the other photos in the folder. In fullscreen it floats over the photo and appears when you move the mouse.
+
+### Videos
+
+Videos open next to your photos and play with GStreamer. Seek with a frame preview, skip ten seconds with the arrow keys, step through single frames, change the speed, loop, and pick up where you left off. When paused, zoom in, copy the frame, or select its text with live text.
+
+Subtitles with the same name as the video load by themselves. Pick subtitle and audio tracks, the subtitle size and delay in one menu, open other subtitle files, or search opensubtitles.com, which looks for subtitles timed for your exact file first.
+
+Motion photos from Google, Samsung and iPhone Live Photos get a small play button for their moving part.
+
+### Video editing
+
+Trim with a filmstrip like on the iPhone: drag the handles, and hold one still to zoom in until single frames show. Remove the sound, rotate and flip. Cuts are frame accurate and only the pieces at the cuts are encoded again, so the rest keeps its quality. **Save Smaller Copy** makes an H.264 or VP9 copy in three sizes, and **Save Frame as Image** opens the current frame in the photo editor. Saving videos needs ffmpeg.
 
 ### Markup
 
@@ -57,7 +69,7 @@ It reads English, Spanish, French, German, Portuguese, Russian, Polish and Turki
 - Undo and redo across every kind of edit.
 - Zoom inside the editor for detailed work.
 - **Save a Copy**, or **Replace Original** and move the old file to the trash.
-- **Make Default Image Viewer** in the main menu opens every supported image type with Blink.
+- **Make Default Image Viewer** and **Make Default Video Player** in the main menu.
 - The Flatpak and AppImage can check for new versions from the main menu.
 
 ### Languages
@@ -82,7 +94,7 @@ To build it yourself instead, see [Build from source](#build-from-source).
 
 ### Privacy and network access
 
-Blink only goes online to check GitHub for updates. Your photos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blink`. Once Blink is on Flathub, which handles updates itself, the update check and the network access will be removed.
+Blink goes online to check GitHub for updates, and only when you search for subtitles, to ask opensubtitles.com, sending the video's file name and a fingerprint of its size and first and last bytes. Your photos and videos never leave your computer, and there are no analytics. Logging in to OpenSubtitles is optional and the password stays in your keyring. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blink`. Once Blink is on Flathub, which handles updates itself, the update check will be removed.
 
 ## Keyboard shortcuts
 
@@ -99,6 +111,10 @@ Blink only goes online to check GitHub for updates. Your photos never leave your
 | <kbd>Shift</kbd> while drawing | Squares, circles and lines at 45° steps |
 | <kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> | Undo / redo |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd> | Replace original / save a copy |
+| <kbd>Space</kbd> | Play or pause a video |
+| <kbd>←</kbd> / <kbd>→</kbd> | Skip a video back or forward ten seconds |
+| <kbd>,</kbd> / <kbd>.</kbd> | Previous / next frame of a video |
+| <kbd>M</kbd> / <kbd>F</kbd> | Mute / fullscreen a video |
 
 All shortcuts are listed under **Keyboard Shortcuts** in the main menu.
 

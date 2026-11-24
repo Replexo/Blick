@@ -10,6 +10,7 @@ src/decoder/formats.rs
 src/decoder/formats/glycin_proxy.rs
 src/decoder/formats/svg.rs
 src/decoder/tiling.rs
+src/default_app.rs
 src/editing.rs
 src/editing/preview.rs
 src/file_model.rs
@@ -17,10 +18,13 @@ src/lib.rs
 src/main.rs
 src/metadata.rs
 src/metadata/file.rs
+src/mpris.rs
+src/opensubtitles.rs
 src/updates.rs
 src/util.rs
 src/util/gettext.rs
 src/util/root.rs
+src/video_export.rs
 src/widgets.rs
 src/widgets/drag_overlay.rs
 src/widgets/drag_overlay.ui
@@ -62,6 +66,8 @@ src/widgets/image_window.ui
 src/widgets/image_window/actions.rs
 src/widgets/image_window/controls.rs
 src/widgets/image_window/set.rs
+src/widgets/motion_photo.rs
+src/widgets/preferences.rs
 src/widgets/print.rs
 src/widgets/print.ui
 src/widgets/print_preview.rs
@@ -69,8 +75,12 @@ src/widgets/properties_view.rs
 src/widgets/properties_view.ui
 src/widgets/shy_bin.rs
 src/widgets/sliding_view.rs
+src/widgets/subtitle_search.rs
 src/widgets/text_layer.rs
 src/widgets/thumbnail_strip.rs
 src/widgets/update_dialog.rs
+src/widgets/video_editor.rs
+src/widgets/video_player.rs
+src/widgets/video_trimmer.rs
 src/widgets/window.rs
 src/widgets/window.ui
