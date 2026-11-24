@@ -34,7 +34,6 @@ mod print_preview;
 mod properties_view;
 mod shy_bin;
 mod sliding_view;
-pub(crate) mod subtitle_search;
 mod text_layer;
 mod thumbnail_strip;
 pub(crate) mod video_editor;

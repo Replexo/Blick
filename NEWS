@@ -2,10 +2,10 @@
 
 - Renamed to Blink, with a new icon. The packages are now called `blink` and replace `glance-viewer`.
 - Videos play in the viewer, next to photos: seek preview, skipping, frame steps, speed, loop, resume, media keys, and zoom, copy and live text when paused.
-- Subtitles: sidecar files load by themselves, track and audio choice, size and delay, and a search on opensubtitles.com.
+- Subtitles: sidecar files load by themselves, track and audio choice, size and delay.
 - Motion photos from Google, Samsung and iPhone Live Photos can play their moving part.
 - Video editor: frame-accurate trimming with a zooming filmstrip, mute, rotate and flip, Save Smaller Copy and Save Frame as Image.
-- Make Default Video Player, and Preferences with autoplay of the next video and an optional OpenSubtitles login.
+- Make Default Video Player, and Preferences with autoplay of the next video.
 - The folder strip sits below the photo and floats in fullscreen. More formats can be edited; AVIF, HEIC, lossy WebP and SVG save as a PNG copy.
 - Ctrl+C copies the edited image, Shift draws straight lines, and markup sizes look the same on every photo.
 

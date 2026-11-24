@@ -276,7 +276,6 @@ dependencies = [
  "libadwaita",
  "libc",
  "libgweather",
- "libsecret",
  "moxcms",
  "pango",
  "pangocairo",
@@ -1844,32 +1843,6 @@ name = "libseccomp-sys"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60276e2d41bbb68b323e566047a1bfbf952050b157d8b5cdc74c07c1bf4ca3b6"
-
-[[package]]
-name = "libsecret"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b531fb2284b303e0f6d214043e641e5da56053a886413c726e69384f9c8d2335"
-dependencies = [
- "gio",
- "glib",
- "libc",
- "libsecret-sys",
-]
-
-[[package]]
-name = "libsecret-sys"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80477411ab81517171559cbb6d48fc024122df02787551ada766c709ffa2859a"
-dependencies = [
- "gio-sys",
- "glib-sys",
- "gobject-sys",
- "libc",
- "pkg-config",
- "system-deps 7.0.8",
-]
 
 [[package]]
 name = "linux-raw-sys"

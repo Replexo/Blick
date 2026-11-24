@@ -65,7 +65,6 @@ pub mod file_model;
 pub mod metadata;
 pub mod mpris;
 pub mod ocr;
-pub mod opensubtitles;
 pub mod updates;
 pub mod util;
 pub mod video_export;

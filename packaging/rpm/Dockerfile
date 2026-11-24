@@ -6,7 +6,7 @@ RUN dnf install -y \
         glib2-devel gtk4-devel libadwaita-devel libgweather4-devel \
         libseccomp-devel lcms2-devel fontconfig-devel libsoup3-devel \
         tesseract-devel leptonica-devel \
-        gstreamer1-devel gstreamer1-plugins-base-devel libsecret-devel \
+        gstreamer1-devel gstreamer1-plugins-base-devel \
     && dnf clean all
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 ENV PATH=/root/.cargo/bin:$PATH

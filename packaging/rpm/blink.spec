@@ -16,7 +16,6 @@ Requires:       tesseract-langpack-eng
 Requires:       gstreamer1-plugins-base
 Requires:       gstreamer1-plugins-good
 Requires:       gstreamer1-plugin-gtk4
-Requires:       libsecret
 Recommends:     gstreamer1-plugin-libav
 Recommends:     /usr/bin/ffmpeg
 Recommends:     tesseract-langpack-spa tesseract-langpack-fra tesseract-langpack-deu

@@ -32,7 +32,7 @@ A strip of thumbnails below the photo lets you jump to the other photos in the f
 
 Videos open next to your photos and play with GStreamer. Seek with a frame preview, skip ten seconds with the arrow keys, step through single frames, change the speed, loop, and pick up where you left off. When paused, zoom in, copy the frame, or select its text with live text.
 
-Subtitles with the same name as the video load by themselves. Pick subtitle and audio tracks, the subtitle size and delay in one menu, open other subtitle files, or search opensubtitles.com, which looks for subtitles timed for your exact file first.
+Subtitles with the same name as the video load by themselves. Pick subtitle and audio tracks, the subtitle size and delay in one menu, or open other subtitle files.
 
 Motion photos from Google, Samsung and iPhone Live Photos get a small play button for their moving part.
 
@@ -94,7 +94,7 @@ To build it yourself instead, see [Build from source](#build-from-source).
 
 ### Privacy and network access
 
-Blink goes online to check GitHub for updates, and only when you search for subtitles, to ask opensubtitles.com, sending the video's file name and a fingerprint of its size and first and last bytes. Your photos and videos never leave your computer, and there are no analytics. Logging in to OpenSubtitles is optional and the password stays in your keyring. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blink`. Once Blink is on Flathub, which handles updates itself, the update check will be removed.
+Blink only goes online to check GitHub for updates. Your photos and videos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blink`. Once Blink is on Flathub, which handles updates itself, the update check and the network access will be removed.
 
 ## Keyboard shortcuts
 

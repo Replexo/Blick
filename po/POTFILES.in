@@ -19,7 +19,6 @@ src/main.rs
 src/metadata.rs
 src/metadata/file.rs
 src/mpris.rs
-src/opensubtitles.rs
 src/updates.rs
 src/util.rs
 src/util/gettext.rs
@@ -75,7 +74,6 @@ src/widgets/properties_view.rs
 src/widgets/properties_view.ui
 src/widgets/shy_bin.rs
 src/widgets/sliding_view.rs
-src/widgets/subtitle_search.rs
 src/widgets/text_layer.rs
 src/widgets/thumbnail_strip.rs
 src/widgets/update_dialog.rs

@@ -146,7 +146,9 @@ mod imp {
 
         fn dispose(&self) {
             self.save_position();
-            self.preview.unparent();
+            if self.preview.parent().is_some() {
+                self.preview.unparent();
+            }
             let _ = std::fs::remove_file(frame_path(self.file.borrow().as_ref()));
             self.uninhibit();
             if let Some(source) = self.tick.take() {
@@ -383,6 +385,17 @@ mod imp {
             self.preview.set_can_target(false);
             self.preview.set_position(gtk::PositionType::Top);
             self.preview.set_parent(&self.seek);
+            // The popover must leave before the seek bar is freed, or GTK
+            // keeps a pointer to the freed bar
+            self.seek.connect_destroy(clone!(
+                #[weak(rename_to = preview)]
+                self.preview,
+                move |_| {
+                    if preview.parent().is_some() {
+                        preview.unparent();
+                    }
+                }
+            ));
 
             let motion = gtk::EventControllerMotion::new();
             motion.connect_motion(clone!(
@@ -524,14 +537,6 @@ mod imp {
             ));
             self.actions.add_action(&open);
 
-            let search = gio::SimpleAction::new("search-subtitles", None);
-            search.connect_activate(clone!(
-                #[weak]
-                obj,
-                move |_, _| obj.search_subtitles()
-            ));
-            self.actions.add_action(&search);
-
             // Subtitle delay, in steps of 0.1 s
             let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             delay_box.set_margin_start(12);
@@ -605,10 +610,6 @@ mod imp {
                 subtitles.append_item(&item);
             }
             subtitles.append(Some(&gettext("_Open Subtitles…")), Some("video.open-subtitles"));
-            subtitles.append(
-                Some(&gettext("_Search Subtitles Online…")),
-                Some("video.search-subtitles"),
-            );
             menu.append_section(Some(&gettext("Subtitles")), &subtitles);
 
             let audio_tracks = self.stream_ids(gst::StreamType::AUDIO);
@@ -1297,13 +1298,6 @@ impl LpVideoPlayer {
         let window = self.imp().picture.root().and_downcast::<gtk::Window>();
         if let Ok(file) = dialog.open_future(window.as_ref()).await {
             self.load_subtitles(&file);
-        }
-    }
-
-    /// Opens the online subtitle search for this video
-    fn search_subtitles(&self) {
-        if let Some(file) = self.file() {
-            crate::widgets::subtitle_search::present(self, &file);
         }
     }
 
