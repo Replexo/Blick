@@ -323,6 +323,11 @@ pub enum ActionPartGlobal {
     ImageLeftInstant,
     #[strum(to_string = "win.image-right-instant")]
     ImageRightInstant,
+    /// Skips in a video, otherwise like the instant image actions
+    #[strum(to_string = "win.arrow-left")]
+    ArrowLeft,
+    #[strum(to_string = "win.arrow-right")]
+    ArrowRight,
     // Pan
     #[strum(to_string = "win.pan-up")]
     PanUp,
@@ -345,8 +350,9 @@ impl ActionPartGlobal {
     pub fn add_accels(application: &gtk::Application) {
         for action in Self::iter() {
             match action {
-                Self::ImageRightInstant => application.set_accels_for_action(&action, &["Right"]),
-                Self::ImageLeftInstant => application.set_accels_for_action(&action, &["Left"]),
+                Self::ImageRightInstant | Self::ImageLeftInstant => {}
+                Self::ArrowRight => application.set_accels_for_action(&action, &["Right"]),
+                Self::ArrowLeft => application.set_accels_for_action(&action, &["Left"]),
                 Self::PanUp => application.set_accels_for_action(&action, &["<Ctrl>Up"]),
                 Self::PanRight => application.set_accels_for_action(&action, &["<Ctrl>Right"]),
                 Self::PanDown => application.set_accels_for_action(&action, &["<Ctrl>Down"]),
@@ -392,6 +398,20 @@ impl ActionPartGlobal {
                         gdk::ModifierType::empty(),
                         &action,
                     );
+                }
+
+                ActionPartGlobal::ArrowLeft | ActionPartGlobal::ArrowRight => {
+                    let right = matches!(action, ActionPartGlobal::ArrowRight);
+                    klass.install_action(&action, None, move |win, _, _| {
+                        let forward = right != (win.direction() == gtk::TextDirection::Rtl);
+                        if let Some(video) = win.image_view().current_video() {
+                            video.skip(forward);
+                        } else if forward {
+                            win.image_view().navigate(Direction::Forward, false);
+                        } else {
+                            win.image_view().navigate(Direction::Back, false);
+                        }
+                    });
                 }
 
                 // Pan

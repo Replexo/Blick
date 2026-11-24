@@ -5,5 +5,9 @@
       <default>false</default>
       <summary>Show the image properties sidebar</summary>
     </key>
+    <key name="autoplay-next" type="b">
+      <default>false</default>
+      <summary>Play the next video in the folder when one ends</summary>
+    </key>
   </schema>
 </schemalist>

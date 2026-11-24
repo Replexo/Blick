@@ -20,6 +20,7 @@
 //!
 //! This widget also handles showing the context menu.
 
+use std::cell::{OnceCell, RefCell};
 use std::time::Duration;
 
 use adw::subclass::prelude::*;
@@ -32,7 +33,7 @@ use crate::decoder::DecoderError;
 use crate::deps::*;
 use crate::util::ErrorType;
 use crate::util::gettext::*;
-use crate::widgets::{LpImage, LpTextLayer};
+use crate::widgets::{LpImage, LpTextLayer, LpVideoPlayer};
 
 mod imp {
     use super::*;
@@ -72,6 +73,14 @@ mod imp {
         pub(super) right_click_gesture: TemplateChild<gtk::GestureClick>,
         #[template_child]
         pub(super) press_gesture: TemplateChild<gtk::GestureLongPress>,
+
+        /// Plays the file if it is a video
+        pub(super) video: OnceCell<LpVideoPlayer>,
+
+        /// The video part of a motion photo, its button and its player
+        pub(super) motion_file: RefCell<Option<gio::File>>,
+        pub(super) motion_button: gtk::Button,
+        pub(super) motion_player: RefCell<Option<LpVideoPlayer>>,
     }
 
     #[glib::object_subclass]
@@ -98,6 +107,25 @@ mod imp {
             self.parent_constructed();
 
             self.text_layer.set_image(&self.image);
+
+            // Play button for motion photos
+            self.motion_button
+                .set_icon_name("media-playback-start-symbolic");
+            self.motion_button
+                .set_tooltip_text(Some(&gettext("Play Motion Photo")));
+            self.motion_button.add_css_class("osd");
+            self.motion_button.add_css_class("circular");
+            self.motion_button.set_halign(gtk::Align::Start);
+            self.motion_button.set_valign(gtk::Align::Start);
+            self.motion_button.set_margin_start(12);
+            self.motion_button.set_margin_top(12);
+            self.motion_button.set_visible(false);
+            self.motion_button.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.play_motion()
+            ));
+            self.overlay.add_overlay(&self.motion_button);
 
             self.text_layer.attach_input(&*self.overlay);
 
@@ -184,6 +212,11 @@ impl LpImagePage {
 
         obj.imp().image.init(file);
 
+        if is_video(file) {
+            obj.init_video(file);
+            return obj;
+        }
+
         glib::spawn_future_local(clone!(
             #[weak]
             obj,
@@ -192,10 +225,80 @@ impl LpImagePage {
             async move {
                 let imp = obj.imp();
                 imp.image.load(&file).await;
+                obj.find_motion().await;
             }
         ));
 
         obj
+    }
+
+    fn init_video(&self, file: &gio::File) {
+        let imp = self.imp();
+        let player = LpVideoPlayer::new(file, &imp.overlay, Some(&imp.image));
+        imp.stack.set_visible_child(&*imp.image_stack_page);
+
+        player.connect_error(glib::clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_, description, details| {
+                let imp = obj.imp();
+                imp.error_page.set_title(&gettext("Could not Play Video"));
+                imp.error_page.set_icon_name(Some("video-x-generic-symbolic"));
+                imp.error_page.set_description(Some(&description));
+                imp.error_more_info.connect_clicked(glib::clone!(
+                    #[weak]
+                    obj,
+                    move |_| {
+                        LpErrorDetails::new(&obj.root().unwrap(), &details, ErrorType::General);
+                    }
+                ));
+                imp.error_more_info.set_visible(true);
+                imp.stack.set_visible_child(&*imp.error_page);
+            }
+        ));
+
+        let _ = imp.video.set(player);
+    }
+
+    /// The player, if the file is a video
+    pub fn video(&self) -> Option<LpVideoPlayer> {
+        self.imp().video.get().cloned()
+    }
+
+    /// Looks for the video part of a motion photo and offers to play it
+    async fn find_motion(&self) {
+        let file = self.file();
+        let motion = crate::widgets::motion_photo::find(&file).await;
+        let imp = self.imp();
+        imp.motion_button.set_visible(motion.is_some());
+        imp.motion_file.replace(motion);
+    }
+
+    fn play_motion(&self) {
+        let imp = self.imp();
+        let Some(file) = imp.motion_file.borrow().clone() else {
+            return;
+        };
+        self.stop_motion();
+        let player = LpVideoPlayer::new(&file, &imp.overlay, None);
+        player.connect_ended(glib::clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_| obj.stop_motion()
+        ));
+        player.set_active(true);
+        imp.motion_button.set_visible(false);
+        imp.motion_player.replace(Some(player));
+    }
+
+    /// Back to the still photo
+    pub fn stop_motion(&self) {
+        let imp = self.imp();
+        if let Some(player) = imp.motion_player.take() {
+            player.detach(&imp.overlay);
+            imp.motion_button
+                .set_visible(imp.motion_file.borrow().is_some());
+        }
     }
 
     pub fn file(&self) -> gio::File {
@@ -211,6 +314,12 @@ impl LpImagePage {
     }
 
     pub fn content_provider(&self) -> Option<gdk::ContentProvider> {
+        // A video gives the frame on screen
+        if let Some(video) = self.video() {
+            return video
+                .frame_texture()
+                .map(|texture| gdk::ContentProvider::for_value(&texture.to_value()));
+        }
         self.imp().image.content_provider()
     }
 
@@ -302,4 +411,17 @@ impl LpImagePage {
             imp.stack.set_visible_child(&*imp.error_page);
         }
     }
+}
+
+/// Whether `file` is a video, from its name and the start of its content
+pub fn is_video(file: &gio::File) -> bool {
+    file.query_info(
+        gio::FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
+        gio::FileQueryInfoFlags::NONE,
+        gio::Cancellable::NONE,
+    )
+    .ok()
+    .and_then(|info| info.content_type())
+    .and_then(|content_type| gio::content_type_get_mime_type(&content_type))
+    .is_some_and(|mime| mime.starts_with("video/"))
 }

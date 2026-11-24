@@ -63,6 +63,7 @@ pub mod decoder;
 pub mod editing;
 pub mod file_model;
 pub mod metadata;
+pub mod mpris;
 pub mod ocr;
 pub mod updates;
 pub mod util;
@@ -138,6 +139,11 @@ pub fn main() -> glib::ExitCode {
     );
 
     tracing::trace!("Gio resources registered");
+
+    // Video playback
+    if let Err(err) = gst::init() {
+        tracing::warn!("Could not initialize GStreamer: {err}");
+    }
 
     LpApplication::new().run()
 }

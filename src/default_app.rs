@@ -67,14 +67,38 @@ pub fn is_available() -> bool {
     app_info().is_some()
 }
 
-/// Image types listed in the installed desktop file
-fn mime_types() -> anyhow::Result<Vec<String>> {
+/// What Blink can be the default for
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Image,
+    Video,
+}
+
+impl Kind {
+    fn prefix(self) -> &'static str {
+        match self {
+            Self::Image => "image/",
+            Self::Video => "video/",
+        }
+    }
+
+    /// The most common types, which decide if Blink is the default already
+    fn main_types(self) -> [&'static str; 2] {
+        match self {
+            Self::Image => ["image/jpeg", "image/png"],
+            Self::Video => ["video/mp4", "video/webm"],
+        }
+    }
+}
+
+/// Types of `kind` listed in the installed desktop file
+fn mime_types(kind: Kind) -> anyhow::Result<Vec<String>> {
     let app_info = app_info().context("The desktop file of the app is not installed")?;
     Ok(app_info
         .supported_types()
         .iter()
         .map(|x| x.to_string())
-        .filter(|x| x.starts_with("image/"))
+        .filter(|x| x.starts_with(kind.prefix()))
         .collect())
 }
 
@@ -94,10 +118,10 @@ fn without(apps: &str, id: &str) -> String {
         .collect()
 }
 
-/// Whether Blink already opens JPEG and PNG images by default
-pub fn is_default() -> bool {
+/// Whether Blink already opens the main types of `kind` by default
+pub fn is_default(kind: Kind) -> bool {
     let id = desktop_id();
-    let types = ["image/jpeg", "image/png"];
+    let types = kind.main_types();
     // Natively GIO knows, including desktop-specific lists
     if !is_flatpak() {
         return types.iter().all(|mime| {
@@ -116,10 +140,10 @@ pub fn is_default() -> bool {
     })
 }
 
-/// Sets Blink as the default for every image type it opens, and returns
+/// Sets Blink as the default for every type of `kind` it opens, and returns
 /// how many types changed
-pub fn make_default() -> anyhow::Result<usize> {
-    let types = mime_types()?;
+pub fn make_default(kind: Kind) -> anyhow::Result<usize> {
+    let types = mime_types(kind)?;
     let path = mimeapps_path();
     let key_file = load(&path)?;
     let id = desktop_id();

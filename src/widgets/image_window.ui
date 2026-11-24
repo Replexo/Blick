@@ -65,6 +65,14 @@
         <attribute name="action">app.make-default</attribute>
       </item>
       <item>
+        <attribute name="label" translatable="yes">Make Default _Video Player</attribute>
+        <attribute name="action">app.make-default-video</attribute>
+      </item>
+      <item>
+        <attribute name="label" translatable="yes">_Play Next Video Automatically</attribute>
+        <attribute name="action">app.autoplay-next</attribute>
+      </item>
+      <item>
         <attribute name="label" translatable="yes">_Delete</attribute>
         <attribute name="action">win.trash</attribute>
       </item>

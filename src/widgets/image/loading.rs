@@ -301,6 +301,10 @@ impl imp::LpImage {
     async fn check_editable(&self) {
         let obj = self.obj();
 
+        if self.video_frame.get() {
+            return;
+        }
+
         let Some(mime_type) = obj.metadata().mime_type() else {
             return;
         };
@@ -376,17 +380,30 @@ impl LpImage {
 
     pub async fn load(&self, file: &gio::File) {
         let imp = self.imp();
-        tracing::debug!("Loading file {}", file.uri());
-
         if imp.rotation_animation().state() == adw::AnimationState::Playing {
             tracing::debug!("Queueing image reload due to playing rotate animation.");
-            self.imp().queued_reload.replace(Some(file.clone()));
+            imp.queued_reload.replace(Some(file.clone()));
             return;
         }
-
         imp.metadata.replace(Metadata::default());
-        self.imp().emmit_metadata_changed();
-        self.imp().set_file_loaded(file).await;
+        imp.emmit_metadata_changed();
+        imp.set_file_loaded(file).await;
+        self.load_source(file).await;
+    }
+
+    /// Shows the paused video frame in `source`, while the image keeps the
+    /// video as its file, so file actions still apply to the video
+    pub async fn load_video_frame(&self, source: &gio::File) {
+        let imp = self.imp();
+        imp.video_frame.set(true);
+        imp.metadata.replace(Metadata::default());
+        imp.emmit_metadata_changed();
+        self.load_source(source).await;
+    }
+
+    async fn load_source(&self, file: &gio::File) {
+        let imp = self.imp();
+        tracing::debug!("Loading file {}", file.uri());
 
         let tiles = &self.imp().frame_buffer;
 

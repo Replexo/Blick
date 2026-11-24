@@ -241,7 +241,7 @@ impl LpFileModel {
                             // Filter out non-images types. The final decision if images are
                             // supported/kept will later be done by glycin when starting to load the
                             // images. Usually by inspecting the magic bytes.
-                            if content_type.starts_with("image/") && !hidden {
+                            if is_media_type(&content_type) && !hidden {
                                 let file = directory.child(info.name());
                                 let entry =
                                     Entry::new(file, Some(info), &mut collation_key_cache).await;
@@ -383,9 +383,8 @@ impl LpFileModel {
     /// Determines if a file is added
     fn is_image(info: &gio::FileInfo) -> bool {
         info.content_type()
-            .map(|t| t.to_string())
-            .filter(|t| t.starts_with("image/"))
-            .is_some()
+            .and_then(|t| gio::content_type_get_mime_type(&t))
+            .is_some_and(|t| is_media_type(&t))
     }
 
     /// Hidden files are skipped, like when listing the folder
@@ -524,4 +523,9 @@ pub enum FileEvent {
     New(String),
     Removed(String),
     Moved(String, String),
+}
+
+/// Images and videos are shown
+fn is_media_type(mime_type: &str) -> bool {
+    mime_type.starts_with("image/") || mime_type.starts_with("video/")
 }

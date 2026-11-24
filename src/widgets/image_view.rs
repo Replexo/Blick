@@ -172,6 +172,10 @@ mod imp {
 
             self.parent_constructed();
 
+            // Videos pause while the viewer is hidden, for example in the editor
+            obj.connect_map(|obj| obj.update_videos());
+            obj.connect_unmap(|obj| obj.update_videos());
+
             // Manually manage widget layout, see `WidgetImpl` for details
             obj.set_layout_manager(None::<gtk::LayoutManager>);
 
@@ -807,6 +811,22 @@ impl LpImageView {
     fn new_image_page(&self, file: &gio::File) -> LpImagePage {
         let page = LpImagePage::from_file(file);
 
+        // Optionally the next video plays when one ends
+        if let Some(video) = page.video() {
+            video.connect_ended(glib::clone!(
+                #[weak(rename_to = obj)]
+                self,
+                move |video| {
+                    let autoplay = crate::application::LpApplication::default()
+                        .settings()
+                        .boolean("autoplay-next");
+                    if autoplay && video.is_active() && obj.next_is_video() {
+                        obj.navigate(Direction::Forward, true);
+                    }
+                }
+            ));
+        }
+
         page.image().connect_is_error_notify(glib::clone!(
             #[weak(rename_to = obj)]
             self,
@@ -931,7 +951,40 @@ impl LpImageView {
         self.imp().drag_source.clone()
     }
 
+    /// Only the shown video plays
+    pub fn update_videos(&self) {
+        let current = self.current_page();
+        let shown = self.is_mapped();
+        for page in self.imp().sliding_view.pages().values() {
+            let is_current = shown && Some(page) == current.as_ref();
+            if let Some(video) = page.video() {
+                video.set_active(is_current);
+            }
+            if !is_current {
+                page.stop_motion();
+            }
+        }
+    }
+
+    /// The player of the shown page, if it is a video
+    pub fn current_video(&self) -> Option<crate::widgets::LpVideoPlayer> {
+        self.current_page().and_then(|page| page.video())
+    }
+
+    fn next_is_video(&self) -> bool {
+        let Some(current) = self.current_file() else {
+            return false;
+        };
+        let files = self.files();
+        files
+            .iter()
+            .position(|f| f.equal(&current))
+            .and_then(|i| files.get(i + 1))
+            .is_some_and(crate::widgets::image_page::is_video)
+    }
+
     fn page_changed(&self) {
+        self.update_videos();
         self.update_folder_strip();
         self.notify_current_page();
         self.notify_is_next_available();

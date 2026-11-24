@@ -56,6 +56,14 @@ mod imp {
         #[template_child]
         image_size: TemplateChild<adw::ActionRow>,
         #[template_child]
+        duration: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        frame_rate: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        video_codec: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        audio_codec: TemplateChild<adw::ActionRow>,
+        #[template_child]
         physical_size: TemplateChild<adw::ActionRow>,
         #[template_child]
         pixel_density: TemplateChild<adw::ActionRow>,
@@ -207,6 +215,27 @@ mod imp {
                 return;
             };
 
+            if crate::widgets::image_page::is_video(&file) {
+                glib::spawn_future_local(glib::clone!(
+                    #[weak(rename_to = obj)]
+                    self.obj(),
+                    #[strong]
+                    file,
+                    async move { obj.imp().update_video(file).await }
+                ));
+            } else {
+                for row in [
+                    &self.duration,
+                    &self.frame_rate,
+                    &self.video_codec,
+                    &self.audio_codec,
+                ] {
+                    row.set_visible(false);
+                }
+                self.image_size.set_title(&gettext("Image Size"));
+                self.image_format.set_title(&gettext("Image Format"));
+            }
+
             let metadata = image.metadata();
 
             // Folder
@@ -263,6 +292,71 @@ mod imp {
             .iter()
             .any(|x| *x);
             self.details.set_visible(has_details);
+        }
+
+        /// Rows of a video, from GStreamer's discoverer and the file info
+        async fn update_video(&self, file: gio::File) {
+            let uri = file.uri().to_string();
+            let info = gio::spawn_blocking(move || crate::widgets::video_player::video_info(&uri))
+                .await
+                .ok()
+                .flatten();
+            let file_info = file
+                .query_info_future(
+                    "standard::size,time::created,time::modified",
+                    gio::FileQueryInfoFlags::NONE,
+                    glib::Priority::DEFAULT,
+                )
+                .await
+                .ok();
+
+            // The view may show another file by now
+            if self.obj().image().and_then(|i| i.file()).as_ref() != Some(&file) {
+                return;
+            }
+
+            self.image_size.set_title(&gettext("Resolution"));
+            self.image_format.set_title(&gettext("Format"));
+            for row in [&self.physical_size, &self.pixel_density] {
+                row.set_visible(false);
+            }
+            let info = info.unwrap_or_default();
+            Self::update_row(
+                &self.image_size,
+                info.size
+                    .map(|(w, h)| gettext_f("{} \u{D7} {}", [w.to_string(), h.to_string()])),
+            );
+            Self::update_row(&self.image_format, info.container);
+            Self::update_row(
+                &self.duration,
+                info.duration.map(crate::widgets::video_player::format_time),
+            );
+            Self::update_row(
+                &self.frame_rate,
+                info.frame_rate.map(|fps| {
+                    // Translators: Frames per second, {} is a number like 29.97
+                    gettext_f("{} fps", [format!("{:.3}", fps).trim_end_matches('0').trim_end_matches('.').to_string()])
+                }),
+            );
+            Self::update_row(&self.video_codec, info.video_codec);
+            Self::update_row(&self.audio_codec, info.audio_codec);
+
+            if let Some(file_info) = file_info {
+                Self::update_row(
+                    &self.file_size,
+                    Some(glib::format_size(file_info.size() as u64)),
+                );
+                let created = file_info.creation_date_time();
+                let modified = file_info.modification_date_time();
+                let has_dates = [
+                    Self::update_row(&self.file_created, created.as_ref().and_then(util::datetime_fmt)),
+                    Self::update_row(&self.file_modified, modified.as_ref().and_then(util::datetime_fmt)),
+                ]
+                .into_iter()
+                .any(|x| x);
+                self.dates.set_visible(has_dates);
+            }
+            self.details.set_visible(false);
         }
 
         fn update_row(row: &adw::ActionRow, value: Option<impl AsRef<str>>) -> bool {

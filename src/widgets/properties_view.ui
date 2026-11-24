@@ -92,6 +92,50 @@
                   </object>
                 </child>
                 <child>
+                  <object class="AdwActionRow" id="duration">
+                    <property name="title" translatable="yes">Duration</property>
+                    <property name="subtitle-selectable">True</property>
+                    <property name="use-markup">False</property>
+                    <property name="visible">False</property>
+                    <style>
+                      <class name="property" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="AdwActionRow" id="frame_rate">
+                    <property name="title" translatable="yes">Frame Rate</property>
+                    <property name="subtitle-selectable">True</property>
+                    <property name="use-markup">False</property>
+                    <property name="visible">False</property>
+                    <style>
+                      <class name="property" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="AdwActionRow" id="video_codec">
+                    <property name="title" translatable="yes">Video Codec</property>
+                    <property name="subtitle-selectable">True</property>
+                    <property name="use-markup">False</property>
+                    <property name="visible">False</property>
+                    <style>
+                      <class name="property" />
+                    </style>
+                  </object>
+                </child>
+                <child>
+                  <object class="AdwActionRow" id="audio_codec">
+                    <property name="title" translatable="yes">Audio Codec</property>
+                    <property name="subtitle-selectable">True</property>
+                    <property name="use-markup">False</property>
+                    <property name="visible">False</property>
+                    <style>
+                      <class name="property" />
+                    </style>
+                  </object>
+                </child>
+                <child>
                   <object class="AdwActionRow" id="file_size">
                     <property name="title" translatable="yes">File Size</property>
                     <property name="subtitle-selectable">True</property>

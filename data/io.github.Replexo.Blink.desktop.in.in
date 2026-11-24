@@ -1,14 +1,14 @@
 [Desktop Entry]
 Name=Blink
-GenericName=Image Viewer
-Comment=View and edit images
+GenericName=Image Viewer and Video Player
+Comment=View and edit images and videos
 Exec=@BIN_NAME@ %U
 Icon=@APP_ID@
 DBusActivatable=true
 Terminal=false
 Type=Application
-Categories=GNOME;GTK;Graphics;2DGraphics;RasterGraphics;Viewer;
+Categories=GNOME;GTK;Graphics;2DGraphics;RasterGraphics;Viewer;AudioVideo;Video;Player;
 MimeType=@MIME_TYPES@
-Keywords=Picture;Graphics;Loupe;Blink;
+Keywords=Picture;Graphics;Loupe;Blink;Video;Movie;
 StartupNotify=true
 X-Purism-FormFactor=Workstation;Mobile;

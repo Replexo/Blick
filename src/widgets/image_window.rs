@@ -730,8 +730,13 @@ impl LpImageWindow {
         if let Err(e) = imp.image_view.copy() {
             tracing::error!("Failed to copy to clipboard: {}", e);
         } else {
+            let text = if imp.image_view.current_video().is_some() {
+                gettext("Frame copied to clipboard")
+            } else {
+                gettext("Image copied to clipboard")
+            };
             self.window_show_toast(
-                &gettext("Image copied to clipboard"),
+                &text,
                 adw::ToastPriority::High,
             );
         }
@@ -864,8 +869,14 @@ impl LpImageWindow {
             .current_page()
             .is_some_and(|x| x.image().is_loaded() && !x.image().is_error());
 
+        // A video's frame can only be zoomed
+        let is_video = self.imp().image_view.current_video().is_some();
         for action in ACTIONS_SHOWN {
-            self.action_set_enabled(action, enabled_shown);
+            let image_only = matches!(
+                action,
+                Action::SetBackground | Action::Print | Action::RotateCw | Action::RotateCcw
+            );
+            self.action_set_enabled(action, enabled_shown && !(image_only && is_video));
         }
 
         // Zoom specific actions
@@ -1018,6 +1029,15 @@ impl LpImageWindow {
             .image_view
             .current_image()
             .and_then(|x| x.metadata().file_name())
+            .or_else(|| {
+                // Videos keep no image metadata for their own file
+                self.imp()
+                    .image_view
+                    .current_video()
+                    .and_then(|video| video.file())
+                    .and_then(|file| file.basename())
+                    .map(|name| name.display().to_string())
+            })
             .unwrap_or_else(|| gettext("Blink"));
 
         self.window_inspect(|x| x.set_title(Some(&title)));

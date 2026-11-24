@@ -52,6 +52,23 @@ mime_types += [
   'image/jxl',
 ]
 
+# Videos, played with GStreamer
+mime_types += [
+  'video/mp4',
+  'video/x-m4v',
+  'video/quicktime',
+  'video/webm',
+  'video/x-matroska',
+  'video/x-msvideo',
+  'video/ogg',
+  'video/mpeg',
+  'video/mp2t',
+  'video/3gpp',
+  'video/3gpp2',
+  'video/x-flv',
+  'video/x-ms-wmv',
+]
+
 conf = configuration_data()
 conf.set('APP_ID', app_id)
 conf.set('BIN_NAME', meson.project_name())

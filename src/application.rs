@@ -168,7 +168,10 @@ impl LpApplication {
                 })
                 .build(),
             gio::ActionEntryBuilder::new("make-default")
-                .activate(|app: &Self, _, _| app.make_default())
+                .activate(|app: &Self, _, _| app.make_default(crate::default_app::Kind::Image))
+                .build(),
+            gio::ActionEntryBuilder::new("make-default-video")
+                .activate(|app: &Self, _, _| app.make_default(crate::default_app::Kind::Video))
                 .build(),
             gio::ActionEntryBuilder::new("updates")
                 .activate(|app: &Self, _, _| {
@@ -187,6 +190,7 @@ impl LpApplication {
         ];
 
         self.add_action_entries(actions);
+        self.add_action(&self.settings().create_action("autoplay-next"));
         self.update_make_default();
         self.watch_defaults();
 
@@ -216,41 +220,47 @@ impl LpApplication {
         Ok(newer.then_some(release))
     }
 
-    /// Makes Blink the default image viewer, after the user asked for it
-    fn make_default(&self) {
+    /// Makes Blink the default image viewer or video player, after the user
+    /// asked for it
+    fn make_default(&self, kind: crate::default_app::Kind) {
+        use crate::default_app::Kind;
         let window = self.active_window().and_downcast::<LpWindow>();
-        match crate::default_app::make_default() {
+        let (done, failed) = match kind {
+            Kind::Image => (
+                gettext("Blink is now the default image viewer"),
+                gettext("Could not make Blink the default image viewer"),
+            ),
+            Kind::Video => (
+                gettext("Blink is now the default video player"),
+                gettext("Could not make Blink the default video player"),
+            ),
+        };
+        match crate::default_app::make_default(kind) {
             Ok(_) => {
                 if let Some(window) = window {
-                    window.show_toast(
-                        &gettext("Blink is now the default image viewer"),
-                        adw::ToastPriority::High,
-                    );
+                    window.show_toast(&done, adw::ToastPriority::High);
                 }
             }
             Err(err) => {
-                tracing::error!("Failed to set the default image viewer: {err:#}");
+                tracing::error!("Failed to set the default app for {kind:?}: {err:#}");
                 if let Some(window) = window {
-                    window.show_toast(
-                        &gettext("Could not make Blink the default image viewer"),
-                        adw::ToastPriority::High,
-                    );
+                    window.show_toast(&failed, adw::ToastPriority::High);
                 }
             }
         }
         self.update_make_default();
     }
 
-    /// Greys out the menu item while Blink is the default already, or
+    /// Greys out the menu items while Blink is the default already, or
     /// when the desktop file is not installed
     fn update_make_default(&self) {
-        if let Some(action) = self
-            .lookup_action("make-default")
-            .and_downcast::<gio::SimpleAction>()
-        {
-            action.set_enabled(
-                crate::default_app::is_available() && !crate::default_app::is_default(),
-            );
+        use crate::default_app::Kind;
+        for (name, kind) in [("make-default", Kind::Image), ("make-default-video", Kind::Video)] {
+            if let Some(action) = self.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+                action.set_enabled(
+                    crate::default_app::is_available() && !crate::default_app::is_default(kind),
+                );
+            }
         }
     }
 

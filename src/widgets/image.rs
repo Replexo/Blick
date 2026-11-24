@@ -184,6 +184,8 @@ mod imp {
         pub(super) lossless_edit: Cell<bool>,
         /// Animated images are never editable
         pub(super) animated: Cell<bool>,
+        /// Shows a paused video frame, which is never edited
+        pub(super) video_frame: Cell<bool>,
 
         /// Track changes to this image
         pub(super) file_monitor: RefCell<Option<gio::FileMonitor>>,

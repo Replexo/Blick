@@ -348,6 +348,9 @@ mod imp {
 use crate::util;
 
 async fn load_thumbnail(file: gio::File, size: u32) -> anyhow::Result<gdk::Texture> {
+    if crate::widgets::image_page::is_video(&file) {
+        return crate::widgets::video_player::video_frame(&file, None, size).await;
+    }
     let mut image = glycin::Loader::new(file).load().await?;
     let frame = image
         .specific_frame(glycin::FrameRequest::new().scale(size, size))
