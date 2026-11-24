@@ -924,7 +924,9 @@ impl LpImageWindow {
         }
 
         // Editing related actions; videos need ffmpeg
-        let video_editing = is_video && glib::find_program_in_path("ffmpeg").is_some();
+        let video_editing = is_video
+            && enabled_shown
+            && glib::find_program_in_path("ffmpeg").is_some();
         let enable_editing = video_editing
             || enabled_shown
                 && self

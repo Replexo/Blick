@@ -33,7 +33,9 @@ use crate::deps::*;
 use crate::widgets::LpImage;
 
 const BLUR_RADIUS: f32 = 18.;
-const CLASSES: [&str; 2] = ["glance-pill", "glance-name"];
+const CLASSES: [&str; 3] = ["glance-pill", "glance-name", "video-controls"];
+/// Corner radius of the video controls card; the other panes are pills
+const CARD_RADIUS: f32 = 12.;
 
 /// Visible part of a pill, the whole pill (both in the frost's coordinates)
 /// and its opacity
@@ -101,7 +103,7 @@ mod imp {
             if panes.is_empty() {
                 return;
             }
-            let Some(image) = self.image() else {
+            let Some(image) = self.source() else {
                 return;
             };
             let Some(bounds) = image.compute_bounds(&*obj) else {
@@ -120,9 +122,16 @@ mod imp {
                 paintable.set_widget(Some(&image));
             }
 
+            let card = self
+                .overlay()
+                .is_some_and(|overlay| has_video_controls(overlay.upcast_ref()));
             for (rect, whole, opacity) in panes {
                 // The ends are round even when a scrolled pill is cut off
-                let radius = whole.width().min(whole.height()) / 2.;
+                let radius = if card {
+                    CARD_RADIUS
+                } else {
+                    whole.width().min(whole.height()) / 2.
+                };
                 let rounded = gsk::RoundedRect::from_rect(whole, radius);
                 snapshot.push_opacity(opacity);
                 snapshot.push_clip(&rect);
@@ -148,10 +157,18 @@ mod imp {
             self.obj().parent().and_downcast()
         }
 
-        /// The picture in the overlay's main child
-        fn image(&self) -> Option<LpImage> {
-            let main = self.overlay()?.child()?;
-            find_image(&main)
+        /// What shows behind the panes: a playing video's picture, or else
+        /// the image in the overlay's main child
+        fn source(&self) -> Option<gtk::Widget> {
+            let overlay = self.overlay()?;
+            let mut child = overlay.first_child();
+            while let Some(widget) = child {
+                if widget.has_css_class("video") && widget.is_drawable() {
+                    return Some(widget);
+                }
+                child = widget.next_sibling();
+            }
+            find_image(&overlay.child()?).map(|image| image.upcast())
         }
 
         /// Pills that are shown in the other overlay children
@@ -214,6 +231,21 @@ fn collect_panes(
         collect_panes(&widget, frost, overlay, panes);
         child = widget.next_sibling();
     }
+}
+
+/// Whether `widget` holds the video controls card
+fn has_video_controls(widget: &gtk::Widget) -> bool {
+    if widget.has_css_class("video-controls") {
+        return true;
+    }
+    let mut child = widget.first_child();
+    while let Some(widget) = child {
+        if has_video_controls(&widget) {
+            return true;
+        }
+        child = widget.next_sibling();
+    }
+    false
 }
 
 /// The part of `whole` that shows: scrolled windows between the pill and
@@ -353,4 +385,10 @@ glib::wrapper! {
     pub struct LpFrost(ObjectSubclass<imp::LpFrost>)
     @extends gtk::Widget,
     @implements gtk::Buildable, gtk::Accessible, gtk::ConstraintTarget;
+}
+
+impl Default for LpFrost {
+    fn default() -> Self {
+        glib::Object::new()
+    }
 }

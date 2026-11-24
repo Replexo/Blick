@@ -74,6 +74,7 @@ mod imp {
         pub(super) duration_label: gtk::Label,
         pub(super) seek: gtk::Scale,
         pub(super) fullscreen_button: RefCell<Option<gtk::Button>>,
+        pub(super) frost: RefCell<Option<crate::widgets::edit::LpFrost>>,
         pub(super) tracks_button: RefCell<Option<gtk::MenuButton>>,
         pub(super) volume_scale: gtk::Scale,
         pub(super) mute_button: gtk::ToggleButton,
@@ -1145,6 +1146,10 @@ impl LpVideoPlayer {
         imp.image.replace(image.cloned());
 
         overlay.add_overlay(&imp.picture);
+        // Frosted glass behind the controls, like the editor's panels
+        let frost = crate::widgets::edit::LpFrost::default();
+        overlay.add_overlay(&frost);
+        imp.frost.replace(Some(frost));
         overlay.add_overlay(&imp.controls);
         overlay.set_measure_overlay(&imp.picture, false);
 
@@ -1243,6 +1248,9 @@ impl LpVideoPlayer {
             let _ = playbin.set_state(gst::State::Null);
         }
         overlay.remove_overlay(&imp.picture);
+        if let Some(frost) = imp.frost.take() {
+            overlay.remove_overlay(&frost);
+        }
         overlay.remove_overlay(&imp.controls);
     }
 
@@ -1356,6 +1364,19 @@ impl LpVideoPlayer {
             }
             if was_playing {
                 imp.save_position();
+                // Pausing sends no new frame, so the shown one goes to the image
+                glib::timeout_add_local_once(
+                    Duration::from_millis(100),
+                    clone!(
+                        #[weak(rename_to = obj)]
+                        self,
+                        move || {
+                            glib::spawn_future_local(async move {
+                                obj.imp().show_frame_in_image().await
+                            });
+                        }
+                    ),
+                );
             }
             imp.update_position();
         }

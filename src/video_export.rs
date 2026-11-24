@@ -618,10 +618,12 @@ pub fn estimate_size(quality: Quality, seconds: f64, source_bitrate: Option<u64>
 
 /// Encodes `edit` of `input` to H.264 and AAC in MP4, or VP9 and Opus in
 /// WebM without H.264
+#[allow(clippy::too_many_arguments)]
 pub async fn save_smaller(
     input: &Path,
     output_path: &Path,
     edit: &VideoEdit,
+    frames: &FrameEdits,
     quality: Quality,
     progress: impl Fn(f64) + 'static,
     cancellable: &gio::Cancellable,
@@ -629,25 +631,57 @@ pub async fn save_smaller(
     let progress: Rc<dyn Fn(f64)> = Rc::new(progress);
     let source = probe(input, cancellable).await?;
     let h264 = has_h264(cancellable).await;
+    // Only ever smaller, keeping the aspect ratio and even sizes
+    let shrink = quality.max_size().map(|max| {
+        format!("scale='if(gt(iw,ih),min({max},iw),-2)':'if(gt(iw,ih),-2,min({max},ih))'")
+    });
 
-    let mut args = display_options(edit, &source);
-    args.extend([
-        "-ss".into(),
-        seconds(edit.start),
-        "-to".into(),
-        seconds(edit.end),
-        "-i".into(),
-        input.to_string_lossy().to_string(),
-        "-map".into(),
-        "0:v:0".into(),
-    ]);
-    if let Some(max) = quality.max_size() {
-        // Only ever smaller, keeping the aspect ratio and even sizes
+    let dir = temp_dir()?;
+    let mut args;
+    if let Some((rotation, flip)) = frames.as_orientation() {
+        let mut edit = *edit;
+        edit.rotation = (edit.rotation + rotation).rem_euclid(4);
+        edit.flip ^= flip;
+        args = display_options(&edit, &source);
         args.extend([
-            "-vf".into(),
-            format!(
-                "scale='if(gt(iw,ih),min({max},iw),-2)':'if(gt(iw,ih),-2,min({max},ih))'"
-            ),
+            "-ss".into(),
+            seconds(edit.start),
+            "-to".into(),
+            seconds(edit.end),
+            "-i".into(),
+            input.to_string_lossy().to_string(),
+            "-map".into(),
+            "0:v:0".into(),
+        ]);
+        if let Some(shrink) = shrink {
+            args.extend(["-vf".into(), shrink]);
+        }
+    } else {
+        // The photo editor's edits, then the smaller size
+        let video_size = source_size(input, cancellable).await.unwrap_or(frames.frame_size);
+        let (mut graph, layer) = frame_filters(frames, video_size, &dir)?;
+        let mut last = "out";
+        if let Some(shrink) = shrink {
+            graph.push_str(&format!(";[out]{shrink}[small]"));
+            last = "small";
+        }
+        args = vec![
+            "-ss".into(),
+            seconds(edit.start),
+            "-to".into(),
+            seconds(edit.end),
+            "-i".into(),
+            input.to_string_lossy().to_string(),
+        ];
+        if let Some(layer) = &layer {
+            args.extend(["-loop".into(), "1".into(), "-i".into(), layer.to_string_lossy().to_string()]);
+        }
+        args.extend([
+            "-filter_complex".into(),
+            graph,
+            "-map".into(),
+            format!("[{last}]"),
+            "-shortest".into(),
         ]);
     }
     if h264 {
@@ -688,7 +722,273 @@ pub async fn save_smaller(
         args.extend(["-movflags".into(), "+faststart".into()]);
     }
     args.push(output_path.to_string_lossy().to_string());
-    ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await
+    let result = ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// Edits made in the photo editor's tabs, applied to every frame
+#[derive(Debug, Clone, Default)]
+pub struct FrameEdits {
+    pub operations: Option<glycin::Operations>,
+    pub pixel: crate::editing::render::PixelEdits,
+    /// Size of the frame the edits were made on
+    pub frame_size: (u32, u32),
+}
+
+impl FrameEdits {
+    /// Rotation in steps of 90° to the left and a horizontal flip, if the
+    /// edits are nothing else, so they can stay display metadata
+    pub fn as_orientation(&self) -> Option<(i32, bool)> {
+        use glycin::Operation;
+        use gufo::common::orientation::Rotation;
+
+        if !self.pixel.is_empty() {
+            return None;
+        }
+        // The edits as `rotate left r times` after `flip f times`
+        let (mut r, mut f) = (0i32, 0i32);
+        for operation in self.operations.iter().flat_map(|o| o.operations()) {
+            match operation {
+                Operation::Rotate(Rotation::_0) => {}
+                Operation::Rotate(Rotation::_90) => r += 1,
+                Operation::Rotate(Rotation::_180) => r += 2,
+                Operation::Rotate(Rotation::_270) => r += 3,
+                Operation::MirrorHorizontally => {
+                    r = -r;
+                    f += 1;
+                }
+                Operation::MirrorVertically => {
+                    r = 2 - r;
+                    f += 1;
+                }
+                _ => return None,
+            }
+        }
+        Some((r.rem_euclid(4), f.rem_euclid(2) == 1))
+    }
+}
+
+/// ffmpeg filters that give every frame the edits; writes the colour table
+/// and the markup layer into `dir`
+fn frame_filters(edits: &FrameEdits, video_size: (u32, u32), dir: &Path) -> Result<(String, Option<PathBuf>), Error> {
+    use crate::editing::geometry;
+    use glycin::Operation;
+    use gufo::common::orientation::Rotation;
+
+    let (fw, fh) = edits.frame_size;
+    let mut chain: Vec<String> = Vec::new();
+    // Edits were made on the frame as shown, which may be scaled
+    if (fw, fh) != video_size && fw > 0 && fh > 0 {
+        chain.push(format!("scale={fw}:{fh}"));
+    }
+
+    // Straighten and perspective: the input points of the output corners
+    let pixel = &edits.pixel;
+    if !pixel.geometry.is_identity() {
+        let size = (fw as f64, fh as f64);
+        if let Some(inverse) = geometry::invert(&pixel.geometry.matrix(size)) {
+            let corners = [(0., 0.), (size.0, 0.), (0., size.1), (size.0, size.1)];
+            let points: Vec<String> = corners
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    let (x, y) = geometry::transform(&inverse, *c);
+                    format!("x{i}={x:.3}:y{i}={y:.3}")
+                })
+                .collect();
+            chain.push(format!("perspective={}:interpolation=cubic", points.join(":")));
+        }
+    }
+
+    // Crop, rotate and flip, in order
+    let (mut width, mut height) = (fw, fh);
+    for operation in edits.operations.iter().flat_map(|o| o.operations()) {
+        match operation {
+            Operation::Clip((x, y, w, h)) => {
+                chain.push(format!("crop={w}:{h}:{x}:{y}"));
+                (width, height) = (*w, *h);
+            }
+            Operation::MirrorHorizontally => chain.push("hflip".into()),
+            Operation::MirrorVertically => chain.push("vflip".into()),
+            Operation::Rotate(Rotation::_90) => {
+                chain.push("transpose=2".into());
+                (width, height) = (height, width);
+            }
+            Operation::Rotate(Rotation::_180) => chain.push("hflip,vflip".into()),
+            Operation::Rotate(Rotation::_270) => {
+                chain.push("transpose=1".into());
+                (width, height) = (height, width);
+            }
+            _ => {}
+        }
+    }
+
+    // Colour adjustments as a 3D table, exactly as the photo editor does them
+    if !pixel.adjustments.is_identity() {
+        let table = dir.join("adjust.cube");
+        write_color_table(&pixel.adjustments, &table)?;
+        chain.push(format!("lut3d=file={}", filter_path(&table)));
+    }
+
+    // Markup as a transparent layer over the edited frame
+    let mut layer = None;
+    if !pixel.markup.is_empty() {
+        let mut image = image::RgbaImage::new(width.max(1), height.max(1));
+        let (matrix, _) = crate::editing::markup::operations_matrix(
+            edits.operations.as_ref(),
+            (fw as f64, fh as f64),
+        );
+        crate::editing::markup::flatten(&mut image, &pixel.markup, matrix)
+            .map_err(|err| Error::Failed(err.to_string()))?;
+        let path = dir.join("markup.png");
+        use gdk::prelude::TextureExt;
+        let texture = gdk::MemoryTexture::new(
+            width as i32,
+            height as i32,
+            gdk::MemoryFormat::R8g8b8a8,
+            &glib::Bytes::from_owned(image.into_raw()),
+            width as usize * 4,
+        );
+        texture
+            .save_to_png(&path)
+            .map_err(|err| Error::Failed(err.to_string()))?;
+        layer = Some(path);
+    }
+
+    let mut graph = format!(
+        "[0:v]{}[edited]",
+        if chain.is_empty() { "null".into() } else { chain.join(",") }
+    );
+    let mut last = "edited".to_string();
+    if layer.is_some() {
+        graph.push_str(";[edited][1:v]overlay=0:0[marked]");
+        last = "marked".into();
+    }
+    // Resize, to even sizes for the encoders
+    let (mut out_w, mut out_h) = (width, height);
+    if let Some(scale) = pixel.resize {
+        (out_w, out_h) = crate::editing::render::scaled_size((width, height), scale);
+    }
+    out_w -= out_w % 2;
+    out_h -= out_h % 2;
+    graph.push_str(&format!(
+        ";[{last}]scale={}:{},format=yuv420p[out]",
+        out_w.max(2),
+        out_h.max(2)
+    ));
+    Ok((graph, layer))
+}
+
+/// A path inside a filter graph, with the characters ffmpeg treats as
+/// special escaped
+fn filter_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace(':', "\\:")
+        .replace('\'', "\\'")
+        .replace(',', "\\,")
+}
+
+/// Writes `adjustments` as an `.cube` 3D colour table
+fn write_color_table(adjustments: &crate::editing::adjust::Adjustments, path: &Path) -> Result<(), Error> {
+    const SIZE: usize = 33;
+    let step = |i: usize| ((i as f64 / (SIZE - 1) as f64) * 255.).round() as u8;
+    let mut pixels = Vec::with_capacity(SIZE * SIZE * SIZE * 4);
+    // Red changes fastest in .cube files
+    for b in 0..SIZE {
+        for g in 0..SIZE {
+            for r in 0..SIZE {
+                pixels.extend_from_slice(&[step(r), step(g), step(b), 255]);
+            }
+        }
+    }
+    adjustments.apply_rgba8(&mut pixels);
+    let mut text = format!("LUT_3D_SIZE {SIZE}\n");
+    for pixel in pixels.as_chunks::<4>().0 {
+        text.push_str(&format!(
+            "{:.6} {:.6} {:.6}\n",
+            pixel[0] as f64 / 255.,
+            pixel[1] as f64 / 255.,
+            pixel[2] as f64 / 255.
+        ));
+    }
+    std::fs::write(path, text).map_err(|err| Error::Failed(err.to_string()))
+}
+
+/// Saves `edit` with the photo editor's `frames` edits; rotation and flips
+/// alone stay metadata, everything else is encoded again
+pub async fn save_edited(
+    input: &Path,
+    output_path: &Path,
+    edit: &VideoEdit,
+    frames: &FrameEdits,
+    progress: impl Fn(f64) + 'static,
+    cancellable: &gio::Cancellable,
+) -> Result<(), Error> {
+    if let Some((rotation, flip)) = frames.as_orientation() {
+        let mut edit = *edit;
+        edit.rotation = (edit.rotation + rotation).rem_euclid(4);
+        edit.flip ^= flip;
+        return save(input, output_path, &edit, progress, cancellable).await;
+    }
+
+    let progress: Rc<dyn Fn(f64)> = Rc::new(progress);
+    let source = probe(input, cancellable).await?;
+    let dir = temp_dir()?;
+    let video_size = source_size(input, cancellable).await.unwrap_or(frames.frame_size);
+    let (graph, layer) = frame_filters(frames, video_size, &dir)?;
+
+    let encoder = encoder_for(&source.codec)
+        .unwrap_or_else(|| vec!["-c:v", "libx264", "-crf", "17", "-preset", "medium"]);
+    let mut args = vec![
+        "-ss".to_string(),
+        seconds(edit.start),
+        "-to".into(),
+        seconds(edit.end),
+        "-i".into(),
+        input.to_string_lossy().to_string(),
+    ];
+    if let Some(layer) = &layer {
+        args.extend(["-loop".into(), "1".into(), "-i".into(), layer.to_string_lossy().to_string()]);
+    }
+    args.extend([
+        "-filter_complex".into(),
+        graph,
+        "-map".into(),
+        "[out]".into(),
+        "-shortest".into(),
+    ]);
+    args.extend(encoder.iter().map(|x| x.to_string()));
+    if edit.mute || !source.has_audio {
+        args.push("-an".into());
+    } else {
+        args.extend(["-map".into(), "0:a?".into(), "-c:a".into(), "copy".into()]);
+    }
+    args.push(output_path.to_string_lossy().to_string());
+    let result = ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// Width and height as shown, after the rotation in the file
+async fn source_size(input: &Path, cancellable: &gio::Cancellable) -> Option<(u32, u32)> {
+    let input = input.to_string_lossy().to_string();
+    let json = output(
+        "ffprobe",
+        &["-v", "error", "-select_streams", "v:0", "-print_format", "json", "-show_streams", &input],
+        cancellable,
+    )
+    .await
+    .ok()?;
+    let json: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let stream = json["streams"].as_array()?.first()?.clone();
+    let (w, h) = (stream["width"].as_u64()? as u32, stream["height"].as_u64()? as u32);
+    let rotation = stream["side_data_list"]
+        .as_array()
+        .and_then(|list| list.iter().find_map(|d| d["rotation"].as_f64()))
+        .unwrap_or_default() as i32;
+    Some(if rotation.rem_euclid(180) == 90 { (h, w) } else { (w, h) })
 }
 
 fn temp_dir() -> Result<PathBuf, Error> {
@@ -769,6 +1069,65 @@ mod tests {
         assert!((info.duration - 8.36).abs() < 0.1, "duration {}", info.duration);
         assert_eq!(info.codec, "h264");
         assert!(info.has_audio);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn orientation_only_edits_stay_metadata() {
+        use glycin::{Operation, Operations};
+        use gufo::common::orientation::Rotation;
+
+        let mut edits = FrameEdits {
+            operations: Some(Operations::new(vec![Operation::Rotate(Rotation::_90)])),
+            ..Default::default()
+        };
+        assert_eq!(edits.as_orientation(), Some((1, false)));
+        edits.operations = Some(Operations::new(vec![Operation::MirrorHorizontally]));
+        assert_eq!(edits.as_orientation(), Some((0, true)));
+        edits.operations = Some(Operations::new(vec![Operation::Clip((0, 0, 10, 10))]));
+        assert_eq!(edits.as_orientation(), None);
+    }
+
+    /// Crops and brightens a generated video; skipped without ffmpeg
+    #[test]
+    fn frame_edits_crop_and_adjust() {
+        use glycin::{Operation, Operations};
+        if glib::find_program_in_path("ffmpeg").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("blick-edit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let input = dir.join("in.mp4");
+        let status = std::process::Command::new("ffmpeg")
+            .args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=gray:size=320x240:rate=25"])
+            .args(["-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .arg(&input)
+            .status()
+            .unwrap();
+        assert!(status.success());
+
+        let mut pixel = crate::editing::render::PixelEdits::default();
+        pixel.adjustments.brightness = 0.5;
+        let frames = FrameEdits {
+            operations: Some(Operations::new(vec![Operation::Clip((10, 20, 200, 100))])),
+            pixel,
+            frame_size: (320, 240),
+        };
+        let output = dir.join("out.mp4");
+        let context = glib::MainContext::default();
+        let result = context.block_on(save_edited(
+            &input,
+            &output,
+            &VideoEdit::new(2.),
+            &frames,
+            |_| {},
+            &gio::Cancellable::new(),
+        ));
+        assert!(result.is_ok(), "{result:?}");
+        let size = context
+            .block_on(source_size(&output, &gio::Cancellable::new()))
+            .unwrap();
+        assert_eq!(size, (200, 100));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

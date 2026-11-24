@@ -192,11 +192,19 @@ mod imp {
         #[template_child]
         header_bar: TemplateChild<adw::HeaderBar>,
         #[template_child]
-        mode_switcher: TemplateChild<adw::ToggleGroup>,
+        pub(super) mode_switcher: TemplateChild<adw::ToggleGroup>,
         #[template_child]
         compare: TemplateChild<gtk::Button>,
         #[template_child]
         save_overwrite: TemplateChild<gtk::ListBoxRow>,
+        #[template_child]
+        pub(super) save_smaller: TemplateChild<gtk::ListBoxRow>,
+        #[template_child]
+        pub(super) save_frame: TemplateChild<gtk::ListBoxRow>,
+        #[template_child]
+        pub(super) content_stack: TemplateChild<gtk::Stack>,
+        /// The Video tab, when editing a video
+        pub(super) video: OnceCell<crate::widgets::LpVideoEditor>,
 
         #[property(get, construct_only)]
         original_image: OnceCell<LpImage>,
@@ -241,7 +249,13 @@ mod imp {
                 glib::spawn_future_local(glib::clone!(
                     #[weak]
                     obj,
-                    async move { obj.imp().save_copy().await }
+                    async move {
+                        if let Some((video, frames)) = obj.video_save() {
+                            video.save_copy(frames).await;
+                        } else {
+                            obj.imp().save_copy().await
+                        }
+                    }
                 ));
             });
 
@@ -250,7 +264,36 @@ mod imp {
                     #[weak]
                     obj,
                     async move {
-                        let _ = obj.imp().save_overwrite().await;
+                        if let Some((video, frames)) = obj.video_save() {
+                            video.replace_original(frames).await;
+                        } else {
+                            let _ = obj.imp().save_overwrite().await;
+                        }
+                    }
+                ));
+            });
+
+            klass.install_action("edit.save-smaller", None, |obj, _, _| {
+                glib::spawn_future_local(glib::clone!(
+                    #[weak]
+                    obj,
+                    async move {
+                        if let Some((video, frames)) = obj.video_save() {
+                            video.save_smaller(frames).await;
+                        }
+                    }
+                ));
+            });
+
+            klass.install_action("edit.save-frame", None, |obj, _, _| {
+                glib::spawn_future_local(glib::clone!(
+                    #[weak]
+                    obj,
+                    async move {
+                        obj.imp().save.popdown();
+                        if let Some(video) = obj.imp().video.get() {
+                            video.save_frame().await;
+                        }
                     }
                 ));
             });
@@ -296,11 +339,38 @@ mod imp {
 
             let obj = self.obj();
 
-            self.mode_switcher
-                .bind_property("active-name", &obj.edit_crop(), "mode")
-                .bidirectional()
-                .sync_create()
-                .build();
+            // The photo tabs, and for videos the Video tab
+            self.content_stack.add_named(&obj.edit_crop(), Some("photo"));
+            self.mode_switcher.connect_active_name_notify(glib::clone!(
+                #[weak]
+                obj,
+                move |switcher| {
+                    let imp = obj.imp();
+                    let name = switcher.active_name().unwrap_or_default();
+                    if name == "video" {
+                        imp.content_stack.set_visible_child_name("video");
+                    } else {
+                        if let Some(video) = imp.video.get() {
+                            video.pause();
+                        }
+                        imp.content_stack.set_visible_child_name("photo");
+                        if obj.edit_crop().mode() != name {
+                            obj.edit_crop().set_mode(name.as_str());
+                        }
+                    }
+                }
+            ));
+            obj.edit_crop().connect_mode_notify(glib::clone!(
+                #[weak]
+                obj,
+                move |edit_crop| {
+                    let switcher = &obj.imp().mode_switcher;
+                    let mode = edit_crop.mode();
+                    if switcher.active_name().as_deref() != Some(mode.as_str()) {
+                        switcher.set_active_name(Some(mode.as_str()));
+                    }
+                }
+            ));
 
             // Compare only makes sense for adjustments
             obj.edit_crop().connect_mode_notify(glib::clone!(
@@ -503,6 +573,15 @@ mod imp {
             self.parent_root();
 
             let obj = self.obj();
+
+            // The photo tabs look up this window, so their mode is set once
+            // it is in one
+            if let Some(mode) = self.mode_switcher.active_name()
+                && mode != "video"
+                && obj.edit_crop().mode() != mode
+            {
+                obj.edit_crop().set_mode(mode.as_str());
+            }
 
             obj.edit_crop()
                 .selection()
@@ -1048,7 +1127,8 @@ mod imp {
         pub(super) fn is_save_sensitive(&self) -> bool {
             let obj = self.obj();
 
-            self.operations
+            self.video.get().is_some_and(|video| video.is_changed())
+                || self.operations
                 .borrow()
                 .as_ref()
                 .is_some_and(|x| !x.operations().is_empty())
@@ -1075,7 +1155,9 @@ mod imp {
                 enabled && self.can_trash.get() && !obj.original_image().copy_only(),
             );
             obj.action_set_enabled("edit.save-copy", enabled);
-            obj.action_set_enabled("edit.copy", enabled);
+            obj.action_set_enabled("edit.copy", enabled && self.video.get().is_none());
+            obj.action_set_enabled("edit.save-smaller", self.video.get().is_some());
+            obj.action_set_enabled("edit.save-frame", self.video.get().is_some());
         }
     }
 }
@@ -1104,10 +1186,68 @@ impl LpEditWindow {
     ];
 
     pub fn new(image: LpImage) -> Self {
-        glib::Object::builder()
+        let file = image.file();
+        let obj: Self = glib::Object::builder()
             .property("original_image", image.clone())
             .property("edit_crop", LpEditCrop::new(image))
-            .build()
+            .build();
+        if let Some(file) = file.filter(crate::widgets::image_page::is_video) {
+            obj.add_video_tab(&file);
+        }
+        obj
+    }
+
+    /// The Video tab with the trimmer, first among the tabs
+    fn add_video_tab(&self, file: &gio::File) {
+        let imp = self.imp();
+        let video = crate::widgets::LpVideoEditor::new(file);
+        video.connect_changed(glib::clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move || obj.imp().update_save_state(false)
+        ));
+        imp.content_stack.add_named(&video, Some("video"));
+        let _ = imp.video.set(video);
+
+        let switcher = &imp.mode_switcher;
+        let photo_tabs: Vec<adw::Toggle> = (0..switcher.n_toggles())
+            .filter_map(|i| switcher.toggle(i))
+            .collect();
+        switcher.remove_all();
+        let toggle = adw::Toggle::new();
+        toggle.set_name(Some("video"));
+        toggle.set_tooltip(&gettext("Video"));
+        let content = adw::ButtonContent::new();
+        content.set_icon_name("glance-video-symbolic");
+        content.set_label(&gettext("_Video"));
+        content.set_use_underline(true);
+        toggle.set_child(Some(&content));
+        switcher.add(toggle);
+        for tab in photo_tabs {
+            switcher.add(tab);
+        }
+        switcher.set_active_name(Some("video"));
+
+        // Saving goes to ffmpeg; these only make sense for videos
+        imp.save_smaller.set_visible(true);
+        imp.save_frame.set_visible(true);
+        imp.update_save_state(false);
+    }
+
+    /// The Video tab and the other tabs' edits, to save a video
+    fn video_save(&self) -> Option<(crate::widgets::LpVideoEditor, crate::video_export::FrameEdits)> {
+        let imp = self.imp();
+        let video = imp.video.get()?.clone();
+        imp.save.popdown();
+        self.edit_crop().apply_crop();
+        self.edit_crop().markup_canvas().finish_text();
+        let (width, height) = self.original_image().image_size();
+        let frames = crate::video_export::FrameEdits {
+            operations: self.operations().map(|o| (*o).clone()),
+            pixel: self.pixel_edits(),
+            frame_size: (width.max(1) as u32, height.max(1) as u32),
+        };
+        Some((video, frames))
     }
 
     pub fn operations(&self) -> Option<Arc<glycin::Operations>> {

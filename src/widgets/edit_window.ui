@@ -14,7 +14,11 @@
         <property name="top-bar-style">raised</property>
         <property name="content">
           <object class="GtkOverlay">
-            <property name="child" bind-source="LpEditWindow" bind-property="edit_crop"/>
+            <property name="child">
+              <object class="GtkStack" id="content_stack">
+                <property name="transition-type">crossfade</property>
+              </object>
+            </property>
             <child type="overlay">
               <object class="LpFrost"/>
             </child>
@@ -184,6 +188,32 @@
                                     <property name="mnemonic-widget">save_copy</property>
                                   </object>
                                 </child>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkListBoxRow" id="save_smaller">
+                            <property name="action-name">edit.save-smaller</property>
+                            <property name="visible">False</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label" translatable="yes">Save S_maller Copy…</property>
+                                <property name="use-underline">true</property>
+                                <property name="xalign">0</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkListBoxRow" id="save_frame">
+                            <property name="action-name">edit.save-frame</property>
+                            <property name="visible">False</property>
+                            <child>
+                              <object class="GtkLabel">
+                                <property name="label" translatable="yes">Save _Frame as Image</property>
+                                <property name="use-underline">true</property>
+                                <property name="xalign">0</property>
                               </object>
                             </child>
                           </object>

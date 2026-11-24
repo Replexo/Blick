@@ -69,8 +69,10 @@ lpthumbnailstrip.compact .current .thumbnail {
 }
 
 /* Video controls: a see-through card over the video */
+/* Frosted like the editor's panels: LpFrost blurs the video behind it */
 .video-controls {
-  background-color: rgb(0 0 0 / 0.45);
+  background-color: rgb(28 28 32 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.08);
   color: white;
   border-radius: 12px;
   padding: 8px 12px;

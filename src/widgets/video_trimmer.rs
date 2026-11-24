@@ -207,6 +207,10 @@ mod imp {
                     Signal::builder("range-changed")
                         .param_types([f64::static_type(), f64::static_type()])
                         .build(),
+                    // Zoomed in to single frames, or back out
+                    Signal::builder("zoom-changed")
+                        .param_types([bool::static_type()])
+                        .build(),
                 ]
             })
         }
@@ -636,6 +640,7 @@ mod imp {
             if self.zoomed.replace(true) {
                 return;
             }
+            self.obj().emit_by_name::<()>("zoom-changed", &[&true]);
             let time = self.part_time(part);
             let x = self.time_to_x(time);
             let span = (ZOOM_FRAMES * self.frame_duration.get()).max(0.4);
@@ -647,6 +652,7 @@ mod imp {
 
         fn zoom_out(&self) {
             self.zoomed.set(false);
+            self.obj().emit_by_name::<()>("zoom-changed", &[&false]);
             self.animate_view((0., self.duration.get()));
         }
 
@@ -728,6 +734,14 @@ impl LpVideoTrimmer {
             "seek",
             false,
             glib::closure_local!(move |obj: &Self, time: f64| f(obj, time)),
+        );
+    }
+
+    pub fn connect_zoom_changed<F: Fn(&Self, bool) + 'static>(&self, f: F) {
+        self.connect_closure(
+            "zoom-changed",
+            false,
+            glib::closure_local!(move |obj: &Self, zoomed: bool| f(obj, zoomed)),
         );
     }
 

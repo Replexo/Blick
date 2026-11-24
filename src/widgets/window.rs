@@ -289,18 +289,9 @@ impl LpWindow {
     }
 
     pub fn show_edit(&self) {
-        // Videos have their own editor
-        if let Some(file) = self
-            .image_view()
-            .current_video()
-            .and_then(|video| video.file())
-        {
-            tracing::debug!("Opening the video editor for {}", file.uri());
-            let edit_child = &*self.imp().edit_window_child;
-            edit_child.set_child(Some(&crate::widgets::LpVideoEditor::new(&file)));
-            self.imp().stack.set_visible_child(edit_child);
-            self.set_fullscreened(false);
-            return;
+        // A video opens on its paused frame, with a Video tab for trimming
+        if let Some(video) = self.image_view().current_video() {
+            video.set_playing(false);
         }
         if let Some(image) = self.image_view().current_image() {
             let edit_child = &*self.imp().edit_window_child;

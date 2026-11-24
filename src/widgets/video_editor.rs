@@ -15,10 +15,11 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Video editor: trim, mute, rotate and flip
+//! The Video tab of the editor: a preview that plays the kept range, the
+//! trimmer, and saving with ffmpeg
 //!
-//! The preview plays only the kept range. Saving runs `ffmpeg`, see
-//! [`crate::video_export`].
+//! Crop, Adjust and Markup come from the photo editor's other tabs and are
+//! handed in as [`FrameEdits`] when saving.
 
 use std::cell::{Cell, OnceCell, RefCell};
 use std::path::{Path, PathBuf};
@@ -32,7 +33,7 @@ use gst::prelude::*;
 use crate::deps::*;
 use crate::util::gettext::*;
 use crate::util::root::ParentWindow;
-use crate::video_export::{self, Quality, VideoEdit};
+use crate::video_export::{self, FrameEdits, Quality, VideoEdit};
 use crate::widgets::LpVideoTrimmer;
 use crate::widgets::video_player::{format_time, video_info};
 
@@ -43,29 +44,24 @@ mod imp {
     pub struct LpVideoEditor {
         pub(super) file: OnceCell<gio::File>,
         pub(super) duration: Cell<f64>,
-        pub(super) source_bitrate: Cell<Option<u64>>,
         pub(super) edit: Cell<Option<VideoEdit>>,
-        /// Edits for undo and redo, and the one shown
-        pub(super) history: RefCell<Vec<VideoEdit>>,
-        pub(super) history_index: Cell<usize>,
+        /// Called when the trim or the sound changes
+        pub(super) on_changed: RefCell<Option<Box<dyn Fn()>>>,
 
         pub(super) playbin: OnceCell<gst::Element>,
-        pub(super) flip_filter: OnceCell<gst::Element>,
         pub(super) bus_watch: RefCell<Option<gst::bus::BusWatchGuard>>,
         pub(super) playing: Cell<bool>,
         pub(super) tick: RefCell<Option<glib::SourceId>>,
 
         pub(super) picture: gtk::Picture,
+        pub(super) time_badge: gtk::Label,
         pub(super) trimmer_bin: adw::Bin,
         pub(super) trimmer: OnceCell<LpVideoTrimmer>,
         pub(super) play_button: gtk::Button,
         pub(super) mute_button: gtk::ToggleButton,
-        pub(super) length_label: gtk::Label,
-        pub(super) header: adw::HeaderBar,
-        pub(super) save_button: gtk::MenuButton,
-        pub(super) undo_button: gtk::Button,
-        pub(super) redo_button: gtk::Button,
-        pub(super) actions: gio::SimpleActionGroup,
+        pub(super) range_label: gtk::Label,
+        pub(super) reset_button: gtk::Button,
+        pub(super) hint: gtk::Label,
 
         pub(super) saving: gtk::Revealer,
         pub(super) saving_title: gtk::Label,
@@ -100,67 +96,22 @@ mod imp {
         }
     }
 
-    impl WidgetImpl for LpVideoEditor {}
+    impl WidgetImpl for LpVideoEditor {
+        fn unmap(&self) {
+            self.set_playing(false);
+            self.parent_unmap();
+        }
+    }
     impl BinImpl for LpVideoEditor {}
 
     impl LpVideoEditor {
         fn build(&self) {
             let obj = self.obj();
-            obj.add_css_class("glance-editor");
 
-            // Header: cancel, undo and redo, save menu
-            let cancel = gtk::Button::with_mnemonic(&gettext("_Cancel"));
-            cancel.connect_clicked(clone!(
-                #[weak]
-                obj,
-                move |_| {
-                    glib::spawn_future_local(async move { obj.close().await });
-                }
-            ));
-            self.header.pack_start(&cancel);
-            self.header.set_show_start_title_buttons(false);
-            self.header.set_show_end_title_buttons(false);
-
-            self.undo_button.set_icon_name("glance-undo-symbolic");
-            self.undo_button.set_tooltip_text(Some(&gettext("Undo")));
-            self.undo_button.set_action_name(Some("video-edit.undo"));
-            self.redo_button.set_icon_name("glance-redo-symbolic");
-            self.redo_button.set_tooltip_text(Some(&gettext("Redo")));
-            self.redo_button.set_action_name(Some("video-edit.redo"));
-
-            let menu = gio::Menu::new();
-            let save = gio::Menu::new();
-            save.append(Some(&gettext("_Save a Copy…")), Some("video-edit.save-copy"));
-            save.append(Some(&gettext("_Replace Original")), Some("video-edit.replace"));
-            save.append(
-                Some(&gettext("Save S_maller Copy…")),
-                Some("video-edit.save-smaller"),
-            );
-            menu.append_section(None, &save);
-            let frame = gio::Menu::new();
-            frame.append(
-                Some(&gettext("Save _Frame as Image")),
-                Some("video-edit.save-frame"),
-            );
-            menu.append_section(None, &frame);
-            self.save_button.set_label(&gettext("_Save"));
-            self.save_button.set_use_underline(true);
-            self.save_button.set_menu_model(Some(&menu));
-            self.save_button.add_css_class("suggested-action");
-            self.header.pack_end(&self.save_button);
-            self.header.pack_end(&self.redo_button);
-            self.header.pack_end(&self.undo_button);
-            let title = adw::WindowTitle::new(&gettext("Edit Video"), "");
-            self.header.set_title_widget(Some(&title));
-
-            // Preview
+            // Preview, with the time of the shown frame in a corner
             self.picture.set_content_fit(gtk::ContentFit::Contain);
             self.picture.set_hexpand(true);
             self.picture.set_vexpand(true);
-            self.picture.set_margin_top(12);
-            self.picture.set_margin_bottom(12);
-            self.picture.set_margin_start(12);
-            self.picture.set_margin_end(12);
             let click = gtk::GestureClick::new();
             click.connect_released(clone!(
                 #[weak]
@@ -168,25 +119,43 @@ mod imp {
                 move |_, _, _, _| obj.imp().toggle_playing()
             ));
             self.picture.add_controller(click);
+            self.time_badge.add_css_class("osd");
+            self.time_badge.add_css_class("numeric");
+            self.time_badge.add_css_class("caption");
+            self.time_badge.add_css_class("video-time-badge");
+            self.time_badge.set_halign(gtk::Align::Start);
+            self.time_badge.set_valign(gtk::Align::Start);
+            self.time_badge.set_margin_start(12);
+            self.time_badge.set_margin_top(12);
+            self.time_badge.set_visible(false);
+            let preview = gtk::Overlay::new();
+            preview.set_child(Some(&self.picture));
+            preview.add_overlay(&self.time_badge);
+            preview.set_margin_top(12);
+            preview.set_margin_start(12);
+            preview.set_margin_end(12);
 
-            // Bottom bar: play, trimmer, mute, rotate, flip
+            // Play, the kept range and Reset above the trimmer
             self.play_button.set_icon_name("glance-play-symbolic");
             self.play_button.set_tooltip_text(Some(&gettext("Play")));
-            self.play_button.add_css_class("flat");
             self.play_button.add_css_class("circular");
-            self.play_button.set_valign(gtk::Align::Center);
+            self.play_button.add_css_class("video-play");
             self.play_button.connect_clicked(clone!(
                 #[weak]
                 obj,
                 move |_| obj.imp().toggle_playing()
             ));
+            self.range_label.add_css_class("numeric");
+            self.range_label.add_css_class("caption");
+            let center = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            center.append(&self.play_button);
+            center.append(&self.range_label);
 
             self.mute_button.set_icon_name("glance-volume-high-symbolic");
             self.mute_button.set_tooltip_text(Some(&gettext("Remove Sound")));
             self.mute_button.add_css_class("flat");
             self.mute_button.add_css_class("circular");
-            self.mute_button.set_valign(gtk::Align::Center);
-            self.mute_button.connect_clicked(clone!(
+            self.mute_button.connect_toggled(clone!(
                 #[weak]
                 obj,
                 move |button| {
@@ -195,49 +164,51 @@ mod imp {
                 }
             ));
 
-            let rotate = gtk::Button::from_icon_name("glance-rotate-left-symbolic");
-            rotate.set_tooltip_text(Some(&gettext("Rotate Left")));
-            let flip = gtk::Button::from_icon_name("glance-flip-symbolic");
-            flip.set_tooltip_text(Some(&gettext("Flip Horizontally")));
-            for button in [&rotate, &flip] {
-                button.add_css_class("flat");
-                button.add_css_class("circular");
-                button.set_valign(gtk::Align::Center);
-            }
-            rotate.connect_clicked(clone!(
+            self.reset_button.set_label(&gettext("Reset"));
+            self.reset_button.add_css_class("flat");
+            self.reset_button.connect_clicked(clone!(
                 #[weak]
                 obj,
-                move |_| obj.imp().change(|edit| edit.rotation = (edit.rotation + 1) % 4)
-            ));
-            flip.connect_clicked(clone!(
-                #[weak]
-                obj,
-                move |_| obj.imp().change(|edit| edit.flip = !edit.flip)
+                move |_| {
+                    let imp = obj.imp();
+                    let duration = imp.duration.get();
+                    if let Some(trimmer) = imp.trimmer.get() {
+                        trimmer.set_range(0., duration);
+                    }
+                    imp.change(|edit| *edit = VideoEdit::new(duration));
+                }
             ));
 
-            self.length_label.add_css_class("numeric");
-            self.length_label.add_css_class("caption");
-            self.length_label.set_width_chars(5);
+            let row = gtk::CenterBox::new();
+            row.set_start_widget(Some(&self.mute_button));
+            row.set_center_widget(Some(&center));
+            row.set_end_widget(Some(&self.reset_button));
+
             self.trimmer_bin.set_hexpand(true);
             self.trimmer_bin.set_child(Some(&adw::Spinner::new()));
 
-            let bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-            bar.add_css_class("glance-pill");
-            bar.set_margin_start(12);
-            bar.set_margin_end(12);
-            bar.set_margin_bottom(12);
-            bar.append(&self.play_button);
-            bar.append(&self.trimmer_bin);
-            bar.append(&self.length_label);
-            bar.append(&self.mute_button);
-            bar.append(&rotate);
-            bar.append(&flip);
+            self.hint.add_css_class("caption");
+            self.hint.add_css_class("dim-label");
+            self.hint.set_wrap(true);
+            self.hint.set_justify(gtk::Justification::Center);
+            self.show_hint(false);
+
+            let panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
+            panel.add_css_class("glance-pill");
+            panel.add_css_class("video-trim-panel");
+            panel.set_margin_start(12);
+            panel.set_margin_end(12);
+            panel.set_margin_top(12);
+            panel.set_margin_bottom(12);
+            panel.append(&row);
+            panel.append(&self.trimmer_bin);
+            panel.append(&self.hint);
 
             let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            content.append(&self.picture);
-            content.append(&bar);
+            content.append(&preview);
+            content.append(&panel);
 
-            // Saving progress over everything
+            // Saving progress over the tab
             self.saving_title.add_css_class("title-4");
             self.progress.set_show_text(true);
             self.progress.set_size_request(260, -1);
@@ -253,12 +224,6 @@ mod imp {
                     }
                 }
             ));
-            let card = gtk::Box::new(gtk::Orientation::Vertical, 18);
-            card.add_css_class("card");
-            card.set_halign(gtk::Align::Center);
-            card.set_valign(gtk::Align::Center);
-            card.set_margin_start(24);
-            card.set_margin_end(24);
             let inner = gtk::Box::new(gtk::Orientation::Vertical, 18);
             inner.set_margin_top(24);
             inner.set_margin_bottom(24);
@@ -267,6 +232,10 @@ mod imp {
             inner.append(&self.saving_title);
             inner.append(&self.progress);
             inner.append(&stop);
+            let card = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            card.add_css_class("card");
+            card.set_halign(gtk::Align::Center);
+            card.set_valign(gtk::Align::Center);
             card.append(&inner);
             let dim = adw::Bin::new();
             dim.add_css_class("saving-overlay");
@@ -279,79 +248,10 @@ mod imp {
             let overlay = gtk::Overlay::new();
             overlay.set_child(Some(&content));
             overlay.add_overlay(&self.saving);
+            obj.set_child(Some(&overlay));
 
-            let toolbar = adw::ToolbarView::new();
-            toolbar.add_top_bar(&self.header);
-            toolbar.set_content(Some(&overlay));
-            obj.set_child(Some(&toolbar));
-
-            self.setup_actions();
-        }
-
-        fn setup_actions(&self) {
-            let obj = self.obj();
-            let add = |name: &str, f: fn(&super::LpVideoEditor)| {
-                let action = gio::SimpleAction::new(name, None);
-                action.connect_activate(clone!(
-                    #[weak]
-                    obj,
-                    move |_, _| f(&obj)
-                ));
-                self.actions.add_action(&action);
-            };
-            add("undo", |obj| obj.imp().move_history(-1));
-            add("redo", |obj| obj.imp().move_history(1));
-            add("save-copy", |obj| {
-                glib::spawn_future_local(clone!(
-                    #[weak]
-                    obj,
-                    async move { obj.save_copy().await }
-                ));
-            });
-            add("replace", |obj| {
-                glib::spawn_future_local(clone!(
-                    #[weak]
-                    obj,
-                    async move { obj.replace_original().await }
-                ));
-            });
-            add("save-smaller", |obj| {
-                glib::spawn_future_local(clone!(
-                    #[weak]
-                    obj,
-                    async move { obj.save_smaller().await }
-                ));
-            });
-            add("save-frame", |obj| {
-                glib::spawn_future_local(clone!(
-                    #[weak]
-                    obj,
-                    async move { obj.save_frame().await }
-                ));
-            });
-            obj.insert_action_group("video-edit", Some(&self.actions));
-
+            // Space plays in this tab
             let shortcuts = gtk::ShortcutController::new();
-            shortcuts.set_scope(gtk::ShortcutScope::Global);
-            for (key, modifiers, action) in [
-                (gdk::Key::z, gdk::ModifierType::CONTROL_MASK, "video-edit.undo"),
-                (
-                    gdk::Key::z,
-                    gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK,
-                    "video-edit.redo",
-                ),
-                (gdk::Key::s, gdk::ModifierType::CONTROL_MASK, "video-edit.replace"),
-                (
-                    gdk::Key::s,
-                    gdk::ModifierType::CONTROL_MASK | gdk::ModifierType::SHIFT_MASK,
-                    "video-edit.save-copy",
-                ),
-            ] {
-                shortcuts.add_shortcut(gtk::Shortcut::new(
-                    Some(gtk::KeyvalTrigger::new(key, modifiers)),
-                    Some(gtk::NamedAction::new(action)),
-                ));
-            }
             shortcuts.add_shortcut(gtk::Shortcut::new(
                 Some(gtk::KeyvalTrigger::new(gdk::Key::space, gdk::ModifierType::empty())),
                 Some(gtk::CallbackAction::new(clone!(
@@ -366,7 +266,14 @@ mod imp {
                 ))),
             ));
             obj.add_controller(shortcuts);
-            self.update_actions();
+        }
+
+        pub(super) fn show_hint(&self, zoomed: bool) {
+            self.hint.set_label(&if zoomed {
+                gettext("Zoomed to single frames. Let go to zoom out, ← and → move one frame.")
+            } else {
+                gettext("Drag the ends to trim. Hold a handle or move it slowly to zoom to single frames.")
+            });
         }
 
         pub(super) fn edit(&self) -> VideoEdit {
@@ -375,38 +282,18 @@ mod imp {
                 .unwrap_or_else(|| VideoEdit::new(self.duration.get()))
         }
 
-        /// Applies `f` to the edit and remembers it for undo
         pub(super) fn change(&self, f: impl FnOnce(&mut VideoEdit)) {
             let mut edit = self.edit();
             f(&mut edit);
             if Some(edit) == self.edit.get() {
                 return;
             }
-            let mut history = self.history.borrow_mut();
-            let index = self.history_index.get();
-            history.truncate(index + 1);
-            history.push(edit);
-            self.history_index.set(history.len() - 1);
-            drop(history);
             self.show_edit(edit);
+            if let Some(callback) = self.on_changed.borrow().as_ref() {
+                callback();
+            }
         }
 
-        fn move_history(&self, step: isize) {
-            let history = self.history.borrow();
-            let index = self.history_index.get() as isize + step;
-            if index < 0 || index as usize >= history.len() {
-                return;
-            }
-            let edit = history[index as usize];
-            drop(history);
-            self.history_index.set(index as usize);
-            if let Some(trimmer) = self.trimmer.get() {
-                trimmer.set_range(edit.start, edit.end);
-            }
-            self.show_edit(edit);
-        }
-
-        /// Shows `edit` in the preview and the buttons
         pub(super) fn show_edit(&self, edit: VideoEdit) {
             self.edit.set(Some(edit));
             if self.mute_button.is_active() != edit.mute {
@@ -420,31 +307,14 @@ mod imp {
             if let Some(playbin) = self.playbin.get() {
                 playbin.set_property("mute", edit.mute);
             }
-            if let Some(filter) = self.flip_filter.get() {
-                filter.set_property_from_str("video-direction", video_direction(&edit));
-            }
-            self.length_label
-                .set_label(&format_time(gst::ClockTime::from_seconds_f64(edit.end - edit.start)));
-            self.update_actions();
-        }
-
-        fn update_actions(&self) {
-            let changed = self.edit().is_changed(self.duration.get());
-            let index = self.history_index.get();
-            let length = self.history.borrow().len();
-            let enable = |name: &str, enabled: bool| {
-                if let Some(action) = self
-                    .actions
-                    .lookup_action(name)
-                    .and_downcast::<gio::SimpleAction>()
-                {
-                    action.set_enabled(enabled);
-                }
-            };
-            enable("undo", index > 0);
-            enable("redo", index + 1 < length);
-            enable("save-copy", changed);
-            enable("replace", changed);
+            let time = |s: f64| format_time(gst::ClockTime::from_seconds_f64(s));
+            // Translators: Kept part of a video: start – end · length
+            self.range_label.set_label(&gettext_f(
+                "{} – {} · {}",
+                [time(edit.start), time(edit.end), time(edit.end - edit.start)],
+            ));
+            self.reset_button
+                .set_sensitive(edit.is_trimmed(self.duration.get()) || edit.mute);
         }
 
         pub(super) fn toggle_playing(&self) {
@@ -452,7 +322,7 @@ mod imp {
         }
 
         /// Plays the kept range from the playhead, or from its start
-        fn set_playing(&self, playing: bool) {
+        pub(super) fn set_playing(&self, playing: bool) {
             let obj = self.obj();
             let Some(playbin) = self.playbin.get() else {
                 return;
@@ -461,8 +331,9 @@ mod imp {
             if playing {
                 let position = self.position();
                 if position < edit.start || position >= edit.end - 0.05 {
-                    self.seek(edit.start, true);
+                    self.seek(edit.start);
                 }
+                self.time_badge.set_visible(false);
             }
             self.playing.set(playing);
             let _ = playbin.set_state(if playing {
@@ -497,7 +368,7 @@ mod imp {
                             // Only the kept range plays
                             if position >= imp.edit().end {
                                 imp.set_playing(false);
-                                imp.seek(imp.edit().start, true);
+                                imp.seek(imp.edit().start);
                             }
                             glib::ControlFlow::Continue
                         }
@@ -516,16 +387,13 @@ mod imp {
                 .map_or(0., |p| p.seconds_f64())
         }
 
-        pub(super) fn seek(&self, seconds: f64, accurate: bool) {
-            let Some(playbin) = self.playbin.get() else {
-                return;
-            };
-            let flags = if accurate {
-                gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE
-            } else {
-                gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT
-            };
-            let _ = playbin.seek_simple(flags, gst::ClockTime::from_seconds_f64(seconds.max(0.)));
+        pub(super) fn seek(&self, seconds: f64) {
+            if let Some(playbin) = self.playbin.get() {
+                let _ = playbin.seek_simple(
+                    gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
+                    gst::ClockTime::from_seconds_f64(seconds.max(0.)),
+                );
+            }
         }
 
         pub(super) fn set_saving(&self, title: Option<&str>) {
@@ -536,7 +404,6 @@ mod imp {
             }
             self.saving.set_reveal_child(saving);
             self.saving.set_can_target(saving);
-            self.header.set_sensitive(!saving);
         }
     }
 }
@@ -547,33 +414,10 @@ glib::wrapper! {
         @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
-/// `videoflip` direction for an edit: flipped first, then rotated left
-fn video_direction(edit: &VideoEdit) -> &'static str {
-    match (edit.rotation.rem_euclid(4), edit.flip) {
-        (0, false) => "identity",
-        (1, false) => "90l",
-        (2, false) => "180",
-        (3, false) => "90r",
-        (0, true) => "horiz",
-        (1, true) => "ul-lr",
-        (2, true) => "vert",
-        _ => "ur-ll",
-    }
-}
-
 impl LpVideoEditor {
     pub fn new(file: &gio::File) -> Self {
         let obj: Self = glib::Object::new();
         let _ = obj.imp().file.set(file.clone());
-        if let Some(name) = file.basename()
-            && let Some(title) = obj
-                .imp()
-                .header
-                .title_widget()
-                .and_downcast::<adw::WindowTitle>()
-            {
-                title.set_subtitle(&name.display().to_string());
-            }
         if let Err(err) = obj.build_preview(file) {
             tracing::warn!("Video editor preview failed: {err}");
         }
@@ -587,6 +431,23 @@ impl LpVideoEditor {
 
     fn file(&self) -> gio::File {
         self.imp().file.get().cloned().unwrap()
+    }
+
+    /// The trim and sound changes
+    pub fn edit(&self) -> VideoEdit {
+        self.imp().edit()
+    }
+
+    pub fn is_changed(&self) -> bool {
+        self.edit().is_changed(self.imp().duration.get())
+    }
+
+    pub fn connect_changed(&self, f: impl Fn() + 'static) {
+        self.imp().on_changed.replace(Some(Box::new(f)));
+    }
+
+    pub fn pause(&self) {
+        self.imp().set_playing(false);
     }
 
     fn build_preview(&self, file: &gio::File) -> anyhow::Result<()> {
@@ -621,15 +482,14 @@ impl LpVideoEditor {
             move |_, message| {
                 if let gst::MessageView::Eos(_) = message.view() {
                     let imp = obj.imp();
-                    imp.toggle_playing();
-                    imp.seek(imp.edit().start, true);
+                    imp.set_playing(false);
+                    imp.seek(imp.edit().start);
                 }
                 glib::ControlFlow::Continue
             }
         ))?;
         imp.bus_watch.replace(Some(guard));
         playbin.set_state(gst::State::Paused)?;
-        let _ = imp.flip_filter.set(flip);
         let _ = imp.playbin.set(playbin);
         Ok(())
     }
@@ -645,10 +505,7 @@ impl LpVideoEditor {
         let imp = self.imp();
         let duration = info.duration.map_or(0., |d| d.seconds_f64());
         imp.duration.set(duration);
-        imp.source_bitrate.set(None);
         let edit = VideoEdit::new(duration);
-        imp.history.replace(vec![edit]);
-        imp.history_index.set(0);
 
         let frame = info.frame_rate.map_or(1. / 30., |fps| 1. / fps.max(1.));
         let trimmer = LpVideoTrimmer::new(&self.file(), duration, frame);
@@ -657,16 +514,17 @@ impl LpVideoEditor {
             self,
             move |_, time| {
                 let imp = obj.imp();
-                if imp.playing.get() {
-                    imp.set_playing_false();
-                }
-                imp.seek(time, true);
+                imp.set_playing(false);
+                imp.seek(time);
+                imp.time_badge
+                    .set_label(&format_time(gst::ClockTime::from_seconds_f64(time)));
+                imp.time_badge.set_visible(true);
             }
         ));
         trimmer.connect_seek(clone!(
             #[weak(rename_to = obj)]
             self,
-            move |_, time| obj.imp().seek(time, true)
+            move |_, time| obj.imp().seek(time)
         ));
         trimmer.connect_range_changed(clone!(
             #[weak(rename_to = obj)]
@@ -678,28 +536,14 @@ impl LpVideoEditor {
                 })
             }
         ));
+        trimmer.connect_zoom_changed(clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_, zoomed| obj.imp().show_hint(zoomed)
+        ));
         imp.trimmer_bin.set_child(Some(&trimmer));
         let _ = imp.trimmer.set(trimmer);
         imp.show_edit(edit);
-    }
-
-    /// Back to the viewer, after asking when there are changes
-    async fn close(&self) {
-        let imp = self.imp();
-        if imp.edit().is_changed(imp.duration.get()) {
-            let dialog = adw::AlertDialog::new(
-                Some(&gettext("Discard Changes?")),
-                Some(&gettext("The changes to this video will be lost.")),
-            );
-            dialog.add_responses(&[("cancel", &gettext("_Cancel")), ("discard", &gettext("_Discard"))]);
-            dialog.set_response_appearance("discard", adw::ResponseAppearance::Destructive);
-            dialog.set_default_response(Some("cancel"));
-            dialog.set_close_response("cancel");
-            if dialog.choose_future(Some(self)).await != "discard" {
-                return;
-            }
-        }
-        self.window_inspect(|w| w.show_image());
     }
 
     /// Runs `export` with the progress shown, and reports errors
@@ -709,7 +553,7 @@ impl LpVideoEditor {
         export: impl AsyncFnOnce(gio::Cancellable, Box<dyn Fn(f64)>) -> Result<(), video_export::Error>,
     ) -> bool {
         let imp = self.imp();
-        imp.set_playing_false();
+        imp.set_playing(false);
         let cancellable = gio::Cancellable::new();
         imp.cancellable.replace(Some(cancellable.clone()));
         imp.set_saving(Some(title));
@@ -783,7 +627,8 @@ impl LpVideoEditor {
         dialog.save_future(window.as_ref()).await.ok()?.path()
     }
 
-    async fn save_copy(&self) {
+    /// Saves a copy with the trim and `frames`, the other tabs' edits
+    pub async fn save_copy(&self, frames: FrameEdits) {
         let Some(input) = self.input_path() else {
             return;
         };
@@ -792,10 +637,11 @@ impl LpVideoEditor {
         let Some(output) = self.choose_file(&suggested).await else {
             return;
         };
-        let edit = self.imp().edit();
+        let edit = self.edit();
         let saved = self
             .run(&gettext("Saving Video"), async |cancellable, progress| {
-                video_export::save(&input, &output, &edit, progress, &cancellable).await
+                video_export::save_edited(&input, &output, &edit, &frames, progress, &cancellable)
+                    .await
             })
             .await;
         if saved {
@@ -805,15 +651,16 @@ impl LpVideoEditor {
 
     /// Writes next to the original, moves the original to the trash or
     /// overwrites it when that is not possible
-    async fn replace_original(&self) {
+    pub async fn replace_original(&self, frames: FrameEdits) {
         let Some(input) = self.input_path() else {
             return;
         };
         let temp = hidden_temp_path(&input);
-        let edit = self.imp().edit();
+        let edit = self.edit();
         let saved = self
             .run(&gettext("Saving Video"), async |cancellable, progress| {
-                video_export::save(&input, &temp, &edit, progress, &cancellable).await
+                video_export::save_edited(&input, &temp, &edit, &frames, progress, &cancellable)
+                    .await
             })
             .await;
         if !saved {
@@ -835,12 +682,11 @@ impl LpVideoEditor {
         self.window_inspect(|w| w.show_specific_image(original));
     }
 
-    async fn save_smaller(&self) {
+    pub async fn save_smaller(&self, frames: FrameEdits) {
         let Some(input) = self.input_path() else {
             return;
         };
-        let imp = self.imp();
-        let edit = imp.edit();
+        let edit = self.edit();
         let seconds = edit.end - edit.start;
         let bitrate = video_export::probe(&input, &gio::Cancellable::new())
             .await
@@ -894,7 +740,8 @@ impl LpVideoEditor {
         };
         let saved = self
             .run(&gettext("Saving Smaller Copy"), async |cancellable, progress| {
-                video_export::save_smaller(&input, &output, &edit, quality, progress, &cancellable).await
+                video_export::save_smaller(&input, &output, &edit, &frames, quality, progress, &cancellable)
+                    .await
             })
             .await;
         if saved {
@@ -902,13 +749,10 @@ impl LpVideoEditor {
         }
     }
 
-    /// Saves the shown frame next to the video and opens it in the image
+    /// Saves the shown frame next to the video and opens it in the photo
     /// editor
-    async fn save_frame(&self) {
+    pub async fn save_frame(&self) {
         let imp = self.imp();
-        let Some(path) = self.file().path() else {
-            return;
-        };
         let Some(texture) = frame_texture(&imp.picture) else {
             self.show_toast(&gettext("Could not take the frame"));
             return;
@@ -923,16 +767,7 @@ impl LpVideoEditor {
             self.show_toast(&gettext_f("Could not save the frame: {}", [err.to_string()]));
             return;
         }
-        let _ = path;
         self.window_inspect(|w| w.open_in_editor(gio::File::for_path(&target)));
-    }
-}
-
-impl imp::LpVideoEditor {
-    fn set_playing_false(&self) {
-        if self.playing.get() {
-            self.toggle_playing();
-        }
     }
 }
 
@@ -976,15 +811,5 @@ mod tests {
             hidden_temp_path(Path::new("/a/clip.mp4")),
             Path::new("/a/.clip.tmp.mp4")
         );
-    }
-
-    #[test]
-    fn directions() {
-        let mut edit = VideoEdit::new(1.);
-        assert_eq!(video_direction(&edit), "identity");
-        edit.rotation = 1;
-        assert_eq!(video_direction(&edit), "90l");
-        edit.flip = true;
-        assert_eq!(video_direction(&edit), "ul-lr");
     }
 }
