@@ -401,24 +401,9 @@ fn segment_distance(a: (f64, f64), b: (f64, f64), p: (f64, f64)) -> f64 {
     distance((a.0 + t * dx, a.1 + t * dy), p)
 }
 
-/// Line width for brush, rectangle and arrow on an image of this size
-pub fn line_width(width: u32, height: u32) -> f64 {
-    (width.max(height) as f64 * 0.006).max(2.)
-}
-
-/// Line width for the highlighter
-pub fn highlighter_width(width: u32, height: u32) -> f64 {
-    line_width(width, height) * 4.
-}
-
 /// Font size for text
 pub fn font_size(width: u32, height: u32) -> f64 {
     (width.max(height) as f64 * 0.035).max(12.)
-}
-
-/// Line width for the eraser
-pub fn eraser_width(width: u32, height: u32) -> f64 {
-    line_width(width, height) * 4.
 }
 
 /// Draws `shapes` with `cr` set up in image coordinates

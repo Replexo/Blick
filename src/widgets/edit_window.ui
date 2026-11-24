@@ -93,7 +93,7 @@
           </object>
         </property>
         <child type="top">
-          <object class="AdwHeaderBar">
+          <object class="AdwHeaderBar" id="header_bar">
             <property name="show-start-title-buttons">false</property>
             <property name="show-end-title-buttons">false</property>
             <child type="start">
@@ -184,16 +184,6 @@
                                     <property name="mnemonic-widget">save_copy</property>
                                   </object>
                                 </child>
-                                <child>
-                                  <object class="GtkLabel">
-                                    <property name="label" translatable="yes">Save changes and keep original.</property>
-                                    <property name="xalign">0</property>
-                                    <style>
-                                      <class name="dimmed"/>
-                                      <class name="caption"/>
-                                    </style>
-                                  </object>
-                                </child>
                               </object>
                             </child>
                           </object>
@@ -210,16 +200,6 @@
                                     <property name="use-underline">true</property>
                                     <property name="xalign">0</property>
                                     <property name="mnemonic-widget">save_overwrite</property>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkLabel">
-                                    <property name="label" translatable="yes">Original image will be moved to the trash if possible.</property>
-                                    <property name="xalign">0</property>
-                                    <style>
-                                      <class name="dimmed"/>
-                                      <class name="caption"/>
-                                    </style>
                                   </object>
                                 </child>
                               </object>

@@ -33,6 +33,10 @@ use crate::widgets::{LpEditWindow, LpImageView, LpImageWindow};
 /// Show window after X milliseconds even if image dimensions are not known yet
 const SHOW_WINDOW_AFTER: u64 = 2000;
 
+/// Smallest window size, as in the template
+pub const MIN_WIDTH: i32 = 360;
+pub const MIN_HEIGHT: i32 = 294;
+
 mod imp {
     use std::cell::{Cell, RefCell};
 
@@ -274,6 +278,8 @@ impl LpWindow {
         self.imp()
             .stack
             .set_visible_child(&*self.imp().image_window);
+        // The editor may have asked for more room
+        self.set_size_request(MIN_WIDTH, MIN_HEIGHT);
     }
 
     pub fn show_specific_image(&self, file: gio::File) {

@@ -27,6 +27,7 @@ use crate::editing::markup::{self, Color, Font, Kind, Shape, Tool};
 use crate::util::root::ParentWindow;
 use crate::widgets::LpImage;
 use crate::widgets::edit::LpEditCrop;
+use crate::widgets::edit::markup::level_pixels;
 
 mod imp {
     use super::*;
@@ -70,6 +71,9 @@ mod imp {
         /// Time and place of the last press, to notice double presses
         pub(super) last_press: Cell<Option<(u32, f64, f64)>>,
         pub(super) rotate_cursor: OnceCell<gdk::Cursor>,
+        /// Outline cursor for the brush, highlighter and eraser, with the
+        /// tool and on-screen size it was drawn for
+        pub(super) size_cursor: RefCell<Option<((Tool, i32), gdk::Cursor)>>,
         /// The text being typed is dragged by its outline
         pub(super) moving_text: Cell<bool>,
     }
@@ -370,6 +374,8 @@ mod imp {
     impl WidgetImpl for LpMarkupCanvas {
         fn snapshot(&self, snapshot: &gtk::Snapshot) {
             let obj = self.obj();
+            // Zooming redraws the canvas, so the cursor follows the zoom here
+            self.update_size_cursor();
             let Some(edit_window) = obj.try_edit_window() else {
                 return;
             };
@@ -527,7 +533,12 @@ mod imp {
                 self.obj().set_cursor_from_name(Some("crosshair"));
                 return;
             }
-            self.obj().set_cursor_from_name(Some(match self.tool.get() {
+            let tool = self.tool.get();
+            if let Some(cursor) = self.tool_cursor(tool) {
+                self.obj().set_cursor(Some(&cursor));
+                return;
+            }
+            self.obj().set_cursor_from_name(Some(match tool {
                 Tool::Select => "default",
                 Tool::Eraser => "cell",
                 Tool::Text => "text",
@@ -550,18 +561,23 @@ mod imp {
         }
 
         fn new_shape(&self, kind: Kind) -> Shape {
-            let (width, height) = self.image().image_size();
+            let image = self.image();
+            let (width, height) = image.image_size();
             let (width, height) = (width.max(1) as u32, height.max(1) as u32);
+            // Lines and strokes keep their size on screen, whatever the photo
             let size = match &kind {
-                Kind::Stroke {
-                    highlighter: true, ..
-                } => markup::highlighter_width(width, height),
                 Kind::Text { .. } => markup::font_size(width, height),
-                Kind::Erase { .. } => markup::eraser_width(width, height),
-                _ => markup::line_width(width, height),
+                _ => {
+                    let scale = image_transform(&image).map_or(1., |(_, _, scale)| scale);
+                    level_pixels(self.size_factor.get()) / scale
+                }
             };
             let fillable = matches!(kind, Kind::Rectangle { .. } | Kind::Ellipse { .. });
-            let mut shape = Shape::new(kind, self.color.get(), size * self.size_factor.get());
+            let factor = match kind {
+                Kind::Text { .. } => self.size_factor.get(),
+                _ => 1.,
+            };
+            let mut shape = Shape::new(kind, self.color.get(), size * factor);
             shape.filled = if matches!(shape.kind, Kind::Text { .. }) {
                 self.text_background.get()
             } else {
@@ -702,6 +718,11 @@ mod imp {
 
             if let Some(shape) = self.current.borrow_mut().as_mut() {
                 match &mut shape.kind {
+                    // Shift draws a straight line from where the stroke started
+                    Kind::Stroke { points, .. } if shift => {
+                        points.truncate(1);
+                        points.push(point);
+                    }
                     Kind::Stroke { points, .. } | Kind::Erase { points } => points.push(point),
                     // Shift keeps lines at multiples of 45° and makes
                     // squares and circles
@@ -971,6 +992,58 @@ mod imp {
                 a if (67.5..112.5).contains(&a) => "ns-resize",
                 a if (112.5..157.5).contains(&a) => "nesw-resize",
                 _ => "ew-resize",
+            }
+        }
+
+        /// Tool and on-screen stroke width for an outline cursor
+        fn size_cursor_key(&self) -> Option<(Tool, i32)> {
+            let tool = self.tool.get();
+            if self.picking.get()
+                || !matches!(tool, Tool::Brush | Tool::Highlighter | Tool::Eraser)
+            {
+                return None;
+            }
+            // Only once the picture is shown
+            self.obj().size_metrics(tool)?;
+            let width = level_pixels(self.size_factor.get());
+            Some((tool, width.clamp(4., 200.).round() as i32))
+        }
+
+        /// Circle for the brush and eraser, and a line for the highlighter,
+        /// as wide as the stroke they draw
+        fn tool_cursor(&self, tool: Tool) -> Option<gdk::Cursor> {
+            let key = self.size_cursor_key().filter(|(t, _)| *t == tool)?;
+            if let Some((cached, cursor)) = self.size_cursor.borrow().as_ref() {
+                if *cached == key {
+                    return Some(cursor.clone());
+                }
+            }
+
+            let (_, diameter) = key;
+            let line = tool == Tool::Highlighter;
+            // Room for the dark edge around the outline
+            let size = diameter + 6;
+            let fallback = gdk::Cursor::from_name("crosshair", None);
+            let cursor = gdk::Cursor::from_callback(
+                move |_, _, scale, width, height, hotspot_x, hotspot_y| {
+                    *width = size;
+                    *height = size;
+                    *hotspot_x = size / 2;
+                    *hotspot_y = size / 2;
+                    size_cursor_texture(diameter, size, scale, line).unwrap_or_else(empty_texture)
+                },
+                fallback.as_ref(),
+            )?;
+            self.size_cursor.replace(Some((key, cursor.clone())));
+            Some(cursor)
+        }
+
+        /// Redraws the outline cursor after the zoom or stroke size changed
+        pub(super) fn update_size_cursor(&self) {
+            let key = self.size_cursor_key();
+            let current = self.size_cursor.borrow().as_ref().map(|(key, _)| *key);
+            if key.is_some() && key != current {
+                self.restore_cursor();
             }
         }
 
@@ -1456,6 +1529,55 @@ fn square(from: (f64, f64), to: (f64, f64)) -> (f64, f64) {
     (from.0 + side * dx.signum(), from.1 + side * dy.signum())
 }
 
+/// Outline of a stroke `diameter` wide, white with a dark edge so it shows
+/// on any photo, centred in a cursor of `size`
+fn size_cursor_texture(diameter: i32, size: i32, scale: f64, line: bool) -> Option<gdk::Texture> {
+    let pixels = (size as f64 * scale).ceil() as i32;
+    let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pixels, pixels).ok()?;
+    {
+        let cr = cairo::Context::new(&surface).ok()?;
+        cr.scale(scale, scale);
+        let (c, radius) = (size as f64 / 2., diameter as f64 / 2.);
+        cr.set_line_cap(cairo::LineCap::Round);
+        for (width, shade, alpha) in [(3., 0., 0.7), (1., 1., 1.)] {
+            cr.set_source_rgba(shade, shade, shade, alpha);
+            cr.set_line_width(width);
+            if line {
+                cr.move_to(c, c - radius);
+                cr.line_to(c, c + radius);
+            } else {
+                cr.arc(c, c, radius, 0., 2. * std::f64::consts::PI);
+            }
+            cr.stroke().ok()?;
+        }
+    }
+    surface.flush();
+    let stride = surface.stride() as usize;
+    let data = surface.data().ok()?.to_vec();
+    Some(
+        gdk::MemoryTexture::new(
+            pixels,
+            pixels,
+            gdk::MemoryFormat::B8g8r8a8Premultiplied,
+            &glib::Bytes::from_owned(data),
+            stride,
+        )
+        .upcast(),
+    )
+}
+
+/// Transparent pixel, used if a cursor can't be drawn
+fn empty_texture() -> gdk::Texture {
+    gdk::MemoryTexture::new(
+        1,
+        1,
+        gdk::MemoryFormat::B8g8r8a8Premultiplied,
+        &glib::Bytes::from_static(&[0; 4]),
+        4,
+    )
+    .upcast()
+}
+
 /// Circular arrow for the rotate cursor, white with a dark edge
 fn rotate_texture() -> Option<gdk::Texture> {
     let size = 24;
@@ -1597,13 +1719,12 @@ impl LpMarkupCanvas {
             return None;
         }
         let (width, height) = (width as u32, height as u32);
-        let base = match tool {
-            Tool::Highlighter => markup::highlighter_width(width, height),
-            Tool::Text => markup::font_size(width, height),
-            Tool::Eraser => markup::eraser_width(width, height),
-            _ => markup::line_width(width, height),
-        };
         let (_, _, scale) = image_transform(&image)?;
+        let base = match tool {
+            Tool::Text => markup::font_size(width, height),
+            // Levels are turned into pixels on a curve, see `level_pixels`
+            _ => 1. / scale,
+        };
         Some((base, scale))
     }
 
@@ -1614,6 +1735,7 @@ impl LpMarkupCanvas {
             typing.shape.size *= factor / old;
         }
         imp.keep_typing();
+        imp.update_size_cursor();
     }
 
     /// Adds the text being typed, before the markup is used elsewhere

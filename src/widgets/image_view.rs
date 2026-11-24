@@ -75,6 +75,9 @@ mod imp {
         pub(super) folder_strip: TemplateChild<LpThumbnailStrip>,
         #[template_child]
         pub(super) folder_strip_events: TemplateChild<gtk::EventControllerMotion>,
+        /// Holds the image and, outside fullscreen, the folder strip below it
+        #[template_child]
+        pub(super) view_box: TemplateChild<gtk::Box>,
 
         /// overlayed controls
         #[template_child]
@@ -497,7 +500,9 @@ impl LpImageView {
         imp.folder_strip.set_files(if show { &files } else { &[] });
         imp.folder_strip.set_current(self.current_file().as_ref());
         imp.folder_strip.set_visible(show);
-        imp.controls_box_start.set_visible(!show && !self.multiple());
+        // The strips replace the previous and next buttons, and a lone
+        // image has nothing to move to
+        imp.controls_box_start.set_visible(false);
     }
 
     /// Files of the current set, or of the folder
@@ -760,6 +765,30 @@ impl LpImageView {
 
     pub fn folder_strip_events(&self) -> gtk::EventControllerMotion {
         self.imp().folder_strip_events.clone()
+    }
+
+    /// Float the folder strip over the image (fullscreen) or dock it below
+    pub fn set_folder_strip_overlay(&self, overlay: bool) {
+        let imp = self.imp();
+        let strip = imp.folder_strip.get();
+        let Some(bin) = imp.bin_child.downcast_ref::<gtk::Overlay>() else {
+            return;
+        };
+        let in_overlay = strip.parent().as_ref() == Some(bin.upcast_ref());
+        if in_overlay == overlay {
+            return;
+        }
+
+        if overlay {
+            imp.view_box.remove(&strip);
+            strip.set_valign(gtk::Align::End);
+            bin.add_overlay(&strip);
+        } else {
+            bin.remove_overlay(&strip);
+            strip.set_valign(gtk::Align::Fill);
+            strip.set_opacity(1.);
+            imp.view_box.append(&strip);
+        }
     }
 
     pub fn controls_box_end(&self) -> gtk::Widget {

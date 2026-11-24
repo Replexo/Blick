@@ -57,18 +57,55 @@ pub fn font_from_name(name: &str) -> Option<Font> {
 /// CSS class names of [`COLORS`], in the same order
 const COLOR_NAMES: [&str; 5] = ["blue", "yellow", "red", "orange", "green"];
 
-/// The size slider covers factors from 1 / `FACTOR_RANGE` to `FACTOR_RANGE`
+/// The size slider covers text factors from 1 / `FACTOR_RANGE` to
+/// `FACTOR_RANGE`
 const FACTOR_RANGE: f64 = 4.;
 
-/// Size factor of a size slider value from -1 to 1, on a log scale so that
-/// 0 is the default size
-pub fn factor_from_slider(value: f64) -> f64 {
-    FACTOR_RANGE.powf(value.clamp(-1., 1.))
+/// Lines, strokes and the eraser have a size level from 1 to `MAX_LEVEL`,
+/// the same on screen for every photo; the largest is about a coin
+pub const MAX_LEVEL: f64 = 50.;
+
+/// Screen pixels of the largest level, about a coin
+const MAX_LEVEL_PIXELS: f64 = 75.;
+
+/// Bend of the size curve: the small levels grow slowly, the large ones
+/// quickly, and level 25 is about a sixth of the largest
+const LEVEL_CURVE: f64 = 3.3;
+
+/// Screen pixels of a stroke at `level`, from 1 px at level 1 to
+/// `MAX_LEVEL_PIXELS` at `MAX_LEVEL`
+pub fn level_pixels(level: f64) -> f64 {
+    let t = ((level - 1.) / (MAX_LEVEL - 1.)).clamp(0., 1.);
+    1. + (MAX_LEVEL_PIXELS - 1.) * (LEVEL_CURVE * t).exp_m1() / LEVEL_CURVE.exp_m1()
 }
 
-/// Size slider value of a size factor
-pub fn slider_from_factor(factor: f64) -> f64 {
-    (factor.max(f64::MIN_POSITIVE).ln() / FACTOR_RANGE.ln()).clamp(-1., 1.)
+/// Size of a slider value from -1 to 1: a factor of the default size for
+/// text, on a log scale, and a level for everything else
+pub fn size_from_slider(tool: Tool, value: f64) -> f64 {
+    let value = value.clamp(-1., 1.);
+    if tool == Tool::Text {
+        FACTOR_RANGE.powf(value)
+    } else {
+        (1. + (value + 1.) / 2. * (MAX_LEVEL - 1.)).round()
+    }
+}
+
+/// Slider value of a size from [`size_from_slider`]
+pub fn slider_from_size(tool: Tool, size: f64) -> f64 {
+    if tool == Tool::Text {
+        (size.max(f64::MIN_POSITIVE).ln() / FACTOR_RANGE.ln()).clamp(-1., 1.)
+    } else {
+        ((size - 1.) / (MAX_LEVEL - 1.) * 2. - 1.).clamp(-1., 1.)
+    }
+}
+
+/// Size a tool starts with
+pub fn default_size(tool: Tool) -> f64 {
+    match tool {
+        Tool::Text => 1.,
+        Tool::Highlighter | Tool::Eraser => 27.,
+        _ => 12.,
+    }
 }
 
 fn color_label(name: &str) -> String {
@@ -406,7 +443,7 @@ mod imp {
                 obj,
                 move |slider| {
                     if !obj.imp().updating.get() {
-                        let factor = factor_from_slider(slider.value());
+                        let factor = size_from_slider(obj.imp().tool.get(), slider.value());
                         let _ = obj.activate_action("edit-markup.size", Some(&factor.to_variant()));
                     }
                 }
@@ -522,7 +559,11 @@ mod imp {
 
         /// Size of new shapes in image pixels
         fn image_size(&self) -> f64 {
-            self.base_size.get() * self.factor.get()
+            if self.tool.get() == Tool::Text {
+                self.base_size.get() * self.factor.get()
+            } else {
+                level_pixels(self.factor.get()) / self.screen_scale.get()
+            }
         }
 
         fn draw_preview(
@@ -627,7 +668,13 @@ mod imp {
         /// Updates the number, the previews and the accessible labels
         pub(super) fn update_options(&self) {
             let tool = self.tool.get();
-            let size = self.image_size().round().max(1.) as i64;
+            // Text shows its font size, everything else its level
+            let size = if tool == Tool::Text {
+                self.image_size()
+            } else {
+                self.factor.get()
+            };
+            let size = size.round().max(1.) as i64;
             self.size_label.set_label(&size.to_string());
 
             let font = font_label(self.font.borrow().as_str());
@@ -881,7 +928,7 @@ impl LpEditMarkup {
         let imp = self.imp();
         imp.factor.set(factor);
         imp.updating.set(true);
-        imp.size_slider.set_value(slider_from_factor(factor));
+        imp.size_slider.set_value(slider_from_size(imp.tool.get(), factor));
         imp.updating.set(false);
         imp.update_options();
     }
@@ -954,16 +1001,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slider_factor_mapping() {
-        assert_eq!(factor_from_slider(0.), 1.);
-        assert!((factor_from_slider(-1.) - 0.25).abs() < 1e-9);
-        assert!((factor_from_slider(1.) - 4.).abs() < 1e-9);
+    fn text_slider_mapping() {
+        let text = Tool::Text;
+        assert_eq!(size_from_slider(text, 0.), 1.);
+        assert!((size_from_slider(text, -1.) - 0.25).abs() < 1e-9);
+        assert!((size_from_slider(text, 1.) - 4.).abs() < 1e-9);
         // Out of range values stay in range
-        assert!((factor_from_slider(3.) - 4.).abs() < 1e-9);
+        assert!((size_from_slider(text, 3.) - 4.).abs() < 1e-9);
         for value in [-1., -0.5, 0., 0.37, 1.] {
-            assert!((slider_from_factor(factor_from_slider(value)) - value).abs() < 1e-9);
+            assert!((slider_from_size(text, size_from_slider(text, value)) - value).abs() < 1e-9);
         }
-        assert_eq!(slider_from_factor(100.), 1.);
-        assert_eq!(slider_from_factor(0.), -1.);
+        assert_eq!(slider_from_size(text, 100.), 1.);
+        assert_eq!(slider_from_size(text, 0.), -1.);
+    }
+
+    #[test]
+    fn level_pixels_curve() {
+        assert!((level_pixels(1.) - 1.).abs() < 1e-9);
+        assert!((level_pixels(MAX_LEVEL) - 75.).abs() < 1e-9);
+        // The small levels stay fine
+        assert!(level_pixels(3.) < 2.);
+        let middle = level_pixels(25.);
+        assert!(middle > 10. && middle < 15., "{middle}");
+    }
+
+    #[test]
+    fn level_slider_mapping() {
+        for tool in [Tool::Brush, Tool::Highlighter, Tool::Eraser] {
+            assert_eq!(size_from_slider(tool, -1.), 1.);
+            assert_eq!(size_from_slider(tool, 1.), MAX_LEVEL);
+            assert_eq!(size_from_slider(tool, 5.), MAX_LEVEL);
+            let start = default_size(tool);
+            assert_eq!(size_from_slider(tool, slider_from_size(tool, start)), start);
+            // 25 sits in the middle
+            assert!(slider_from_size(tool, 25.).abs() < 0.03);
+        }
     }
 }

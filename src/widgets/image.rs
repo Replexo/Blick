@@ -175,6 +175,15 @@ mod imp {
         /// Editor can be used on image
         #[property(get)]
         pub(super) editable: Cell<bool>,
+        /// Edits can only be saved as a PNG copy, since saving the original
+        /// format again would lose quality or is not possible
+        #[property(get)]
+        pub(super) copy_only: Cell<bool>,
+        /// Crop, rotate and flip can be saved without decoding the image
+        #[property(get)]
+        pub(super) lossless_edit: Cell<bool>,
+        /// Animated images are never editable
+        pub(super) animated: Cell<bool>,
 
         /// Track changes to this image
         pub(super) file_monitor: RefCell<Option<gio::FileMonitor>>,

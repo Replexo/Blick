@@ -34,7 +34,8 @@ use crate::util::root::ParentWindow;
 use crate::widgets::LpImage;
 use crate::widgets::edit::color_card::color_from_hex;
 use crate::widgets::edit::frost::PageFade;
-use crate::widgets::edit::markup::{factor_from_slider, font_from_name, tool_from_name};
+use crate::editing::markup::Tool;
+use crate::widgets::edit::markup::{default_size, font_from_name, tool_from_name};
 use crate::widgets::edit::{
     LpCenterSlider, LpEditAdjust, LpEditCropSelection, LpEditMarkup, LpFrost, LpMarkupCanvas,
     LpResizeDialog,
@@ -429,7 +430,7 @@ mod imp {
                             .borrow()
                             .get(&name)
                             .copied()
-                            .unwrap_or_else(|| factor_from_slider(0.));
+                            .unwrap_or_else(|| default_size(tool));
                         let _ = obj.activate_action("edit-markup.size", Some(&factor.to_variant()));
                     }
                 }
@@ -502,6 +503,13 @@ mod imp {
                 }
             ));
             markup_actions.add_action(&size_action);
+            // The brush, the first tool, starts at its own size. After
+            // construction, since the canvas looks up this widget
+            glib::idle_add_local_once(glib::clone!(
+                #[weak]
+                size_action,
+                move || size_action.activate(Some(&default_size(Tool::Brush).to_variant()))
+            ));
 
             let font_action = gio::SimpleAction::new_stateful(
                 "font",
@@ -686,11 +694,10 @@ mod imp {
     impl BinImpl for LpEditCrop {}
 
     impl LpEditCrop {
-        /// Room the pills at the bottom ask for. The aspect ratios and the
-        /// markup pills scroll, so they never widen the window past 336 px;
-        /// markup always reserves its options row, so the picture does not
-        /// jump when the row shows or hides.
-        fn pills_size(&self, orientation: gtk::Orientation, for_size: i32) -> i32 {
+        /// Room the pills at the bottom ask for, so all their buttons show.
+        /// The aspect ratios scroll; markup always reserves its options row,
+        /// so the picture does not jump when the row shows or hides.
+        pub(super) fn pills_size(&self, orientation: gtk::Orientation, for_size: i32) -> i32 {
             match self.mode_stack.visible_child_name().as_deref() {
                 Some("crop") if orientation == gtk::Orientation::Horizontal => {
                     let (_, geometry, _, _) = self.geometry_page.measure(orientation, -1);
@@ -698,8 +705,9 @@ mod imp {
                     geometry.max(action)
                 }
                 Some("markup") if orientation == gtk::Orientation::Horizontal => {
-                    let (_, natural, _, _) = self.mode_stack.measure(orientation, -1);
-                    natural.min(336)
+                    // The page itself, as the stack is smaller while it fades
+                    let (_, natural, _, _) = self.markup.measure(orientation, -1);
+                    natural
                 }
                 Some("markup") => self.markup.reserved_height(for_size),
                 _ => self.mode_stack.measure(orientation, for_size).1,
@@ -1364,6 +1372,15 @@ glib::wrapper! {
 }
 
 impl LpEditCrop {
+    /// Smallest size that shows all buttons of the pills plus some picture
+    pub fn min_size(&self) -> (i32, i32) {
+        let imp = self.imp();
+        let width = imp.pills_size(gtk::Orientation::Horizontal, -1) + 24;
+        // Undo pill above, margin below and room for the picture
+        let height = imp.pills_size(gtk::Orientation::Vertical, width) + 12 + 60 + 120;
+        (width, height)
+    }
+
     pub fn new(original_image: LpImage) -> Self {
         let obj: Self = glib::Object::builder()
             .property("original_image", original_image)

@@ -124,7 +124,7 @@ fn resize(image: &RgbaImage, width: u32, height: u32) -> RgbaImage {
 }
 
 /// Loads `file`, applies `operations` and `edits` and returns the encoded
-/// image in the file's original format
+/// image in the file's original format, or in `target_mime_type` if given
 ///
 /// The colour profile and pixel density are kept when the format supports
 /// them. Other metadata is not written. The pixel work runs on a thread pool.
@@ -132,12 +132,16 @@ pub async fn render(
     file: gio::File,
     operations: Option<Operations>,
     edits: PixelEdits,
+    target_mime_type: Option<glycin::MimeType>,
     cancellable: &gio::Cancellable,
 ) -> anyhow::Result<Vec<u8>> {
     // Only reads the header, to know the format
     let mut loader = glycin::Loader::new(file.clone());
     loader.cancellable(cancellable.clone());
-    let mime_type = loader.load().await?.mime_type();
+    let mime_type = match target_mime_type {
+        Some(mime_type) => mime_type,
+        None => loader.load().await?.mime_type(),
+    };
 
     let keep_icc_profile = supports_icc_profile(mime_type.clone()).await;
     let mut loader = glycin::Loader::new(file);

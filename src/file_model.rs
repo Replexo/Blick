@@ -388,6 +388,12 @@ impl LpFileModel {
             .is_some()
     }
 
+    /// Hidden files are skipped, like when listing the folder
+    fn is_hidden_name(file: &gio::File) -> bool {
+        file.basename()
+            .is_some_and(|name| name.as_os_str().as_encoded_bytes().starts_with(b"."))
+    }
+
     fn is_image_file(file: &gio::File) -> bool {
         let Ok(info) =
             util::query_attributes(file, vec![gio::FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE])
@@ -444,7 +450,7 @@ impl LpFileModel {
             gio::FileMonitorEvent::Created
             | gio::FileMonitorEvent::MovedIn
             | gio::FileMonitorEvent::ChangesDoneHint
-                if Self::is_image_file(file_a) =>
+                if !Self::is_hidden_name(file_a) && Self::is_image_file(file_a) =>
             {
                 // ^^^^
                 // Changing file content could theoretically make it an image
@@ -487,7 +493,7 @@ impl LpFileModel {
                         let mut changed =
                             self.imp().files.borrow_mut().shift_remove(&uri_a).is_some();
 
-                        if Self::is_image_file(file_b) {
+                        if !Self::is_hidden_name(file_b) && Self::is_image_file(file_b) {
                             glib::spawn_future_local(glib::clone!(
                                 #[strong(rename_to=obj)]
                                 self,

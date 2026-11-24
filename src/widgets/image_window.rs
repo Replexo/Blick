@@ -308,6 +308,18 @@ mod imp {
             );
 
             current_image_signals.connect_closure(
+                "notify::editable",
+                false,
+                glib::closure_local!(
+                    #[watch]
+                    obj,
+                    move |_: &LpImage, _: &glib::ParamSpec| {
+                        obj.update_image_actions_status();
+                    }
+                ),
+            );
+
+            current_image_signals.connect_closure(
                 "notify::is-loaded",
                 false,
                 glib::closure_local!(
@@ -1053,6 +1065,7 @@ impl LpImageWindow {
             "view-fullscreen-symbolic"
         };
         self.imp().fullscreen_button.set_icon_name(icon);
+        self.image_view().set_folder_strip_overlay(is_fullscreen);
 
         self.update_headerbar_style();
 

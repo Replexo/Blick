@@ -44,9 +44,11 @@ use crate::util::root::ParentWindow;
 
 /// Path of the temporary file used while replacing `path`
 ///
-/// `n` is 0 for `name.tmp.ext`, otherwise `name.tmpN.ext`
+/// `n` is 0 for `.name.tmp.ext`, otherwise `.name.tmpN.ext`. The file is hidden,
+/// so the viewer doesn't show it as a new image while saving.
 fn tmp_path(path: &std::path::Path, n: u32) -> Option<std::path::PathBuf> {
-    let mut name = path.file_stem()?.to_os_string();
+    let mut name = std::ffi::OsString::from(".");
+    name.push(path.file_stem()?);
     name.push(".tmp");
     if n > 0 {
         name.push(n.to_string());
@@ -188,9 +190,13 @@ mod imp {
         #[template_child]
         shortcut_controller: TemplateChild<gtk::ShortcutController>,
         #[template_child]
+        header_bar: TemplateChild<adw::HeaderBar>,
+        #[template_child]
         mode_switcher: TemplateChild<adw::ToggleGroup>,
         #[template_child]
         compare: TemplateChild<gtk::Button>,
+        #[template_child]
+        save_overwrite: TemplateChild<gtk::ListBoxRow>,
 
         #[property(get, construct_only)]
         original_image: OnceCell<LpImage>,
@@ -249,6 +255,14 @@ mod imp {
                 ));
             });
 
+            klass.install_action("edit.copy", None, |obj, _, _| {
+                glib::spawn_future_local(glib::clone!(
+                    #[weak]
+                    obj,
+                    async move { obj.imp().copy_edited().await }
+                ));
+            });
+
             klass.install_action("edit.undo", None, |obj, _, _| obj.undo());
             klass.install_action("edit.redo", None, |obj, _, _| obj.redo());
 
@@ -294,9 +308,19 @@ mod imp {
                 obj,
                 move |edit_crop| {
                     obj.imp().compare.set_visible(edit_crop.mode() == "adjust");
+                    // Each mode has its own pills, once they have switched
+                    glib::idle_add_local_once(glib::clone!(
+                        #[weak]
+                        obj,
+                        move || obj.imp().update_window_min_size()
+                    ));
                 }
             ));
             self.compare.set_visible(false);
+
+            // Formats that would lose quality are only saved as a PNG copy
+            self.save_overwrite
+                .set_visible(!obj.original_image().copy_only());
 
             // Holding the button shows the picture without adjustments
             let hold = gtk::GestureClick::new();
@@ -395,6 +419,27 @@ mod imp {
                 }
             }
 
+            // Copies the edited image, unless text is being typed
+            self.shortcut_controller.add_shortcut(gtk::Shortcut::new(
+                Some(gtk::KeyvalTrigger::new(
+                    gdk::Key::c,
+                    gdk::ModifierType::CONTROL_MASK,
+                )),
+                Some(gtk::CallbackAction::new(glib::clone!(
+                    #[weak]
+                    obj,
+                    #[upgrade_or]
+                    glib::Propagation::Proceed,
+                    move |_, _| {
+                        if obj.dialog_open() || obj.edit_crop().markup_canvas().is_typing() {
+                            return glib::Propagation::Proceed;
+                        }
+                        let _ = obj.activate_action("edit.copy", None);
+                        glib::Propagation::Stop
+                    }
+                ))),
+            ));
+
             // Single keys for views and tools (A select, B brush, C crop);
             // text fields and typed text
             // take the keys first
@@ -471,11 +516,35 @@ mod imp {
                 ));
 
             self.update_save_state(false);
+            glib::idle_add_local_once(glib::clone!(
+                #[weak]
+                obj,
+                move || obj.imp().update_window_min_size()
+            ));
         }
     }
     impl BinImpl for LpEditWindow {}
 
     impl LpEditWindow {
+        /// Windows with breakpoints ignore how much room their content
+        /// needs, so the window is given the editor's minimum size: all
+        /// header buttons, which the header bar would cut off, and all pills
+        fn update_window_min_size(&self) {
+            let obj = self.obj();
+            let Some(window) = obj.root().and_downcast::<gtk::Window>() else {
+                return;
+            };
+            let (_, header_width, _, _) = self.header_bar.measure(gtk::Orientation::Horizontal, -1);
+            let (_, header_height, _, _) = self.header_bar.measure(gtk::Orientation::Vertical, -1);
+            let (crop_width, crop_height) = obj.edit_crop().min_size();
+            let width = header_width.max(crop_width);
+            let height = header_height + crop_height;
+            window.set_size_request(
+                width.max(crate::widgets::window::MIN_WIDTH),
+                height.max(crate::widgets::window::MIN_HEIGHT),
+            );
+        }
+
         /// Close editing view
         fn cancel(&self) {
             // Closing while saving could start a second save
@@ -533,7 +602,9 @@ mod imp {
                             // Translators: Filename suffix, {} is replaced by a number
                             new_filename.push(ngettext(" (Edited)", " (Edited {})", i));
 
-                            if let Some(ext) = path.extension() {
+                            if obj.original_image().copy_only() {
+                                new_filename.push(".png");
+                            } else if let Some(ext) = path.extension() {
                                 new_filename.push(".");
                                 new_filename.push(ext);
                             }
@@ -583,9 +654,60 @@ mod imp {
             }
         }
 
+        /// Puts the edited image on the clipboard without saving a file
+        pub(super) async fn copy_edited(&self) {
+            let obj = self.obj();
+            self.save.popdown();
+
+            let Some(_guard) = self.begin_save() else {
+                return;
+            };
+            let Some(current_file) = obj.original_image().file() else {
+                return;
+            };
+
+            let cancellable = gio::Cancellable::new();
+            if let Some(old_cancellable) = self.save_cancellable.replace(Some(cancellable.clone()))
+            {
+                old_cancellable.cancel();
+            }
+
+            let Some(data) = self.render_edited(current_file, cancellable).await else {
+                return;
+            };
+
+            let texture = match glycin::Loader::new_vec(data).load().await {
+                Ok(mut image) => image.next_frame().await.map(|frame| frame.texture()),
+                Err(err) => Err(err),
+            };
+            self.set_saving_status(None);
+
+            match texture {
+                Ok(texture) => {
+                    obj.clipboard().set_texture(&texture);
+                    obj.window_show_toast(
+                        // Translators: This is a toast notification
+                        &gettext("Image copied."),
+                        adw::ToastPriority::Normal,
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to copy edited image: {err}");
+                    obj.window_show_toast(
+                        &gettext("Could not copy image."),
+                        adw::ToastPriority::High,
+                    );
+                }
+            }
+        }
+
         pub(super) async fn save_overwrite(&self) -> Result<(), ()> {
             let obj = self.obj();
             self.save.popdown();
+
+            if obj.original_image().copy_only() {
+                return Err(());
+            }
 
             let Some(_guard) = self.begin_save() else {
                 return Err(());
@@ -790,13 +912,20 @@ mod imp {
             self.set_saving_status(Some(gettext("Editing Image")));
 
             let pixel_edits = obj.pixel_edits();
-            if !pixel_edits.is_empty() {
+            let image = obj.original_image();
+            // Only JPEG and PNG can be cropped and rotated without decoding,
+            // everything else goes through the encoder
+            if !pixel_edits.is_empty() || !image.lossless_edit() {
                 tracing::debug!("Rendering pixel edits {pixel_edits:?}");
                 let operations = obj.operations().map(|x| (*x).clone());
+                let target_mime_type = image
+                    .copy_only()
+                    .then(|| glycin::MimeType::new("image/png".to_string()));
                 let result = crate::editing::render::render(
                     current_file,
                     operations,
                     pixel_edits.clone(),
+                    target_mime_type,
                     &cancellable,
                 )
                 .await;
@@ -941,8 +1070,12 @@ mod imp {
             let enabled = self.is_save_sensitive() && !force_disabled;
 
             self.save.set_sensitive(enabled);
-            obj.action_set_enabled("edit.save-overwrite", enabled & self.can_trash.get());
+            obj.action_set_enabled(
+                "edit.save-overwrite",
+                enabled && self.can_trash.get() && !obj.original_image().copy_only(),
+            );
             obj.action_set_enabled("edit.save-copy", enabled);
+            obj.action_set_enabled("edit.copy", enabled);
         }
     }
 }
@@ -1371,11 +1504,11 @@ mod tests {
     #[test]
     fn tmp_path_names() {
         let p = Path::new("/a/b/photo.png");
-        assert_eq!(tmp_path(p, 0).unwrap(), Path::new("/a/b/photo.tmp.png"));
-        assert_eq!(tmp_path(p, 2).unwrap(), Path::new("/a/b/photo.tmp2.png"));
+        assert_eq!(tmp_path(p, 0).unwrap(), Path::new("/a/b/.photo.tmp.png"));
+        assert_eq!(tmp_path(p, 2).unwrap(), Path::new("/a/b/.photo.tmp2.png"));
         assert_eq!(
             tmp_path(Path::new("/a/noext"), 0).unwrap(),
-            Path::new("/a/noext.tmp")
+            Path::new("/a/.noext.tmp")
         );
         assert!(tmp_path(Path::new("/"), 0).is_none());
     }
@@ -1410,15 +1543,15 @@ mod tests {
         std::fs::write(&original, b"old").unwrap();
         std::fs::set_permissions(&original, std::fs::Permissions::from_mode(0o640)).unwrap();
         // Occupied names, one of them a dangling symlink
-        std::fs::write(dir.join("photo.tmp.png"), b"user data").unwrap();
-        std::os::unix::fs::symlink(dir.join("missing"), dir.join("photo.tmp1.png")).unwrap();
+        std::fs::write(dir.join(".photo.tmp.png"), b"user data").unwrap();
+        std::os::unix::fs::symlink(dir.join("missing"), dir.join(".photo.tmp1.png")).unwrap();
 
         let tmp = write_tmp_file(&original, b"new").unwrap();
 
-        assert_eq!(tmp, dir.join("photo.tmp2.png"));
+        assert_eq!(tmp, dir.join(".photo.tmp2.png"));
         assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
         assert_eq!(
-            std::fs::read(dir.join("photo.tmp.png")).unwrap(),
+            std::fs::read(dir.join(".photo.tmp.png")).unwrap(),
             b"user data"
         );
         assert!(!dir.join("missing").exists());
@@ -1434,10 +1567,10 @@ mod tests {
     #[test]
     fn path_free_messages() {
         let orig = Path::new("/home/u/pics/photo.png");
-        let tmp = Path::new("/home/u/pics/photo.tmp.png");
+        let tmp = Path::new("/home/u/pics/.photo.tmp.png");
         assert_eq!(
             path_free_message(
-                "Error renaming file /home/u/pics/photo.tmp.png: Permission denied",
+                "Error renaming file /home/u/pics/.photo.tmp.png: Permission denied",
                 &[orig, tmp]
             ),
             "Permission denied"

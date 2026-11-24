@@ -8,7 +8,25 @@
       <object class="GtkOverlay" id="bin_child">
         <property name="hexpand">True</property>
         <child>
-          <object class="LpSlidingView" id="sliding_view" />
+          <object class="GtkBox" id="view_box">
+            <property name="orientation">vertical</property>
+            <child>
+              <object class="LpSlidingView" id="sliding_view">
+                <property name="vexpand">True</property>
+              </object>
+            </child>
+            <child>
+              <object class="LpThumbnailStrip" id="folder_strip">
+                <property name="visible">False</property>
+                <style>
+                  <class name="folder-strip" />
+                </style>
+                <child>
+                  <object class="GtkEventControllerMotion" id="folder_strip_events" />
+                </child>
+              </object>
+            </child>
+          </object>
         </child>
         <child type="overlay">
           <object class="GtkBox" id="controls_box_start">
@@ -41,19 +59,6 @@
             </child>
             <child>
               <object class="GtkEventControllerMotion" id="controls_box_start_events" />
-            </child>
-          </object>
-        </child>
-        <child type="overlay">
-          <object class="LpThumbnailStrip" id="folder_strip">
-            <property name="visible">False</property>
-            <property name="valign">end</property>
-            <property name="halign">fill</property>
-            <style>
-              <class name="folder-strip" />
-            </style>
-            <child>
-              <object class="GtkEventControllerMotion" id="folder_strip_events" />
             </child>
           </object>
         </child>

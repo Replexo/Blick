@@ -128,6 +128,11 @@ impl imp::LpImage {
                 }
             }
             DecoderUpdate::Animated => {
+                // Saving would keep only the first frame
+                self.animated.set(true);
+                if self.editable.replace(false) {
+                    obj.notify_editable();
+                }
                 if self.still.get() {
                     // Just load the first frame
                     self.frame_buffer.next_frame();
@@ -296,18 +301,64 @@ impl imp::LpImage {
     async fn check_editable(&self) {
         let obj = self.obj();
 
-        if let Some(mime_type) = obj.metadata().mime_type()
-            && let Ok(supported_formats) = glycin::config::Config::cached()
-                .await
-                .editor(&mime_type.as_str().into())
-            && LpEditWindow::REQUIRED_OPERATIONS
+        let Some(mime_type) = obj.metadata().mime_type() else {
+            return;
+        };
+        let mime_type = mime_type.as_str().to_string();
+        let config = glycin::config::Config::cached().await;
+        let editor = config.editor(&mime_type.as_str().into()).ok();
+
+        let lossless_edit = editor.is_some_and(|editor| {
+            LpEditWindow::REQUIRED_OPERATIONS
                 .iter()
-                .all(|x| supported_formats.operations().contains(x))
-        {
+                .all(|x| editor.operations().contains(x))
+        });
+        let can_encode = editor.is_some_and(|editor| editor.is_creator());
+
+        let copy_only = match mime_type.as_str() {
+            "image/avif" | "image/heif" | "image/svg+xml" | "image/svg+xml-compressed" => true,
+            "image/webp" => match obj.file() {
+                Some(file) => is_lossy_webp(&file).await,
+                None => true,
+            },
+            _ => false,
+        };
+
+        if (lossless_edit || can_encode || copy_only) && !self.animated.get() {
+            self.lossless_edit.set(lossless_edit && !copy_only);
+            self.copy_only.set(copy_only);
             self.editable.set(true);
             obj.notify_editable();
-        };
+        }
     }
+}
+
+/// Whether a WebP file uses lossy compression
+///
+/// Lossy WebP stores its image in a `VP8 ` chunk, lossless WebP in `VP8L`.
+async fn is_lossy_webp(file: &gio::File) -> bool {
+    let Ok((data, _)) = file.load_bytes_future().await else {
+        return true;
+    };
+    let data = &data[..];
+    if data.len() < 12 || &data[0..4] != b"RIFF" || &data[8..12] != b"WEBP" {
+        return true;
+    }
+
+    let mut pos = 12;
+    while pos + 8 <= data.len() {
+        match &data[pos..pos + 4] {
+            b"VP8 " => return true,
+            b"VP8L" => return false,
+            _ => {}
+        }
+        let size = u32::from_le_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+            as usize;
+        // Chunks are padded to an even size
+        pos += 8 + size + (size & 1);
+    }
+
+    true
 }
 
 impl LpImage {
