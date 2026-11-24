@@ -116,3 +116,18 @@ popover.video-menu > arrow {
   border: none;
   box-shadow: none;
 }
+
+/* Compact rows in the video menus */
+popover.video-menu > contents {
+  padding: 4px;
+  min-width: 0;
+}
+
+popover.video-menu modelbutton {
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+popover.video-menu .title {
+  font-size: smaller;
+}

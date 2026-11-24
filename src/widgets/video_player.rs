@@ -43,6 +43,10 @@ const SKIP: gst::ClockTime = gst::ClockTime::from_seconds(10);
 const HIDE_DELAY: Duration = Duration::from_secs(3);
 /// Playback speeds offered in the menu
 const SPEEDS: [f64; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+/// Width of the frame preview over the seek bar
+const PREVIEW_WIDTH: i32 = 112;
+/// Space between the controls card and the preview or a menu above it
+const MENU_GAP: i32 = 12;
 /// Positions closer than this to the start or end are not remembered
 const RESUME_MARGIN: f64 = 5.;
 /// Subtitle files that are picked up next to a video
@@ -118,6 +122,9 @@ mod imp {
         /// Position and playing state to restore after reloading
         pub(super) restore: Cell<Option<(gst::ClockTime, bool)>>,
         pub(super) tracks_menu: gio::Menu,
+        pub(super) tracks_popover: RefCell<Option<gtk::PopoverMenu>>,
+        /// Size and delay rows in the tracks menu, with their ids
+        pub(super) custom_rows: RefCell<Vec<(gtk::Widget, &'static str)>>,
         pub(super) delay_label: gtk::Label,
     }
 
@@ -367,18 +374,31 @@ mod imp {
                 if let Some(popover) = button.popover() {
                     popover.add_css_class("video-menu");
                     popover.set_has_arrow(false);
-                    popover.connect_show(clone!(
+                    let place = clone!(
                         #[weak]
                         bar,
                         #[weak]
                         button,
-                        move |popover| {
+                        #[weak]
+                        popover,
+                        move || {
                             let lift = button
                                 .compute_point(&bar, &graphene::Point::new(0., 0.))
                                 .map_or(0, |p| p.y() as i32);
-                            popover.set_offset(0, -lift - 8);
+                            popover.set_offset(0, -lift - MENU_GAP);
+                        }
+                    );
+                    // Placed before it opens, and again once it shows
+                    button.connect_active_notify(clone!(
+                        #[strong]
+                        place,
+                        move |button| {
+                            if button.is_active() {
+                                place();
+                            }
                         }
                     ));
+                    popover.connect_show(move |_| place());
                 }
             }
 
@@ -428,7 +448,8 @@ mod imp {
 
             // A small frosted card in the page, not a popup, so showing it
             // never takes the pointer off the seek bar
-            self.preview_picture.set_size_request(112, 63);
+            self.preview_picture
+                .set_size_request(PREVIEW_WIDTH, PREVIEW_WIDTH * 9 / 16);
             self.preview_picture
                 .set_content_fit(gtk::ContentFit::Contain);
             self.preview_label.add_css_class("numeric");
@@ -436,7 +457,13 @@ mod imp {
             self.preview.set_orientation(gtk::Orientation::Vertical);
             self.preview.set_spacing(4);
             self.preview.add_css_class("video-preview");
-            self.preview.append(&self.preview_picture);
+            // The frame's own size would make the card large
+            let clamp = adw::Clamp::new();
+            clamp.set_maximum_size(PREVIEW_WIDTH);
+            clamp.set_tightening_threshold(PREVIEW_WIDTH);
+            clamp.set_child(Some(&self.preview_picture));
+            self.preview_picture.set_can_shrink(true);
+            self.preview.append(&clamp);
             self.preview.append(&self.preview_label);
             self.preview.set_halign(gtk::Align::Start);
             self.preview.set_valign(gtk::Align::End);
@@ -480,8 +507,15 @@ mod imp {
                 let max = (overlay.width() - width - 8).max(8);
                 let start = (point.x() as i32 - width / 2).clamp(8, max);
                 self.preview.set_margin_start(start);
+                // A gap above the controls card
+                let card_top = self
+                    .controls
+                    .child()
+                    .and_then(|clamp| clamp.first_child())
+                    .and_then(|card| card.compute_point(&overlay, &graphene::Point::new(0., 0.)))
+                    .map_or(point.y(), |p| p.y());
                 self.preview
-                    .set_margin_bottom(overlay.height() - point.y() as i32 + 12);
+                    .set_margin_bottom(overlay.height() - card_top as i32 + MENU_GAP);
             }
             self.preview.set_visible(true);
 
@@ -506,7 +540,7 @@ mod imp {
                 #[weak]
                 obj,
                 async move {
-                    let texture = video_frame(&file, Some(position), 320).await;
+                    let texture = video_frame(&file, Some(position), PREVIEW_WIDTH as u32 * 2).await;
                     let imp = obj.imp();
                     imp.preview_loading.set(false);
                     if let Ok(texture) = texture {
@@ -658,6 +692,11 @@ mod imp {
             let popover = gtk::PopoverMenu::from_model(Some(&self.tracks_menu));
             popover.add_child(&size_box, "size");
             popover.add_child(&delay_box, "delay");
+            self.tracks_popover.replace(Some(popover.clone()));
+            self.custom_rows.replace(vec![
+                (size_box.upcast(), "size"),
+                (delay_box.upcast(), "delay"),
+            ]);
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-subtitles-symbolic");
             button.set_popover(Some(&popover));
@@ -717,6 +756,15 @@ mod imp {
                 rows.append_item(&item);
             }
             menu.append_section(None, &rows);
+            // A new model drops the custom rows, so they come back each time
+            if let Some(popover) = self.tracks_popover.borrow().as_ref() {
+                for (widget, id) in self.custom_rows.borrow().iter() {
+                    if widget.parent().is_some() {
+                        popover.remove_child(widget);
+                    }
+                    popover.add_child(widget, id);
+                }
+            }
 
             // Show the chosen tracks
             if let Some(action) = self.actions.lookup_action("subtitle") {
@@ -1308,9 +1356,9 @@ impl LpVideoPlayer {
         self.imp().position()
     }
 
-    /// Height of the controls, which other bars keep clear of
-    pub fn controls_height(&self) -> i32 {
-        self.imp().controls.height()
+    /// Room kept free below the controls, for the folder strip
+    pub fn set_bottom_inset(&self, inset: i32) {
+        self.imp().controls.set_margin_bottom(inset);
     }
 
     pub fn duration(&self) -> Option<gst::ClockTime> {
