@@ -88,3 +88,31 @@ lpthumbnailstrip.compact .current .thumbnail {
 .video-controls button.video-play:hover {
   background-color: rgb(255 255 255 / 0.85);
 }
+
+/* Frame preview over the seek bar, frosted like the controls */
+.video-preview {
+  background-color: rgb(28 28 32 / 0.6);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  color: white;
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.video-preview picture {
+  border-radius: 4px;
+}
+
+/* Video menus: dark and see-through like the controls, without a shadow */
+popover.video-menu > contents {
+  background-color: rgb(28 28 32 / 0.92);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 12px;
+  box-shadow: none;
+  color: white;
+}
+
+popover.video-menu > arrow {
+  background: none;
+  border: none;
+  box-shadow: none;
+}

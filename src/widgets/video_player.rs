@@ -98,7 +98,9 @@ mod imp {
         pub(super) missing_codec: RefCell<Option<String>>,
 
         /// Frame preview over the seek bar
-        pub(super) preview: gtk::Popover,
+        pub(super) preview: gtk::Box,
+        /// The page's overlay, where the frame preview floats
+        pub(super) overlay: glib::WeakRef<gtk::Overlay>,
         pub(super) preview_picture: gtk::Picture,
         pub(super) preview_label: gtk::Label,
         /// Where the pointer is on the seek bar, and if a frame is loading
@@ -148,9 +150,6 @@ mod imp {
 
         fn dispose(&self) {
             self.save_position();
-            if self.preview.parent().is_some() {
-                self.preview.unparent();
-            }
             let _ = std::fs::remove_file(frame_path(self.file.borrow().as_ref()));
             self.uninhibit();
             if let Some(source) = self.tick.take() {
@@ -179,7 +178,7 @@ mod imp {
             self.picture.add_css_class("video");
 
             self.play_button.set_icon_name("glance-play-symbolic");
-            self.play_button.set_tooltip_text(Some(&gettext("Play")));
+            self.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Play"))]);
             self.play_button.add_css_class("circular");
             self.play_button.add_css_class("video-play");
             self.play_button.set_valign(gtk::Align::Center);
@@ -235,7 +234,7 @@ mod imp {
             ));
 
             self.mute_button.set_icon_name("glance-volume-high-symbolic");
-            self.mute_button.set_tooltip_text(Some(&gettext("Mute")));
+            self.mute_button.update_property(&[gtk::accessible::Property::Label(&gettext("Mute"))]);
             self.mute_button.set_active(MUTED.get());
             self.mute_button.connect_toggled(clone!(
                 #[weak]
@@ -280,12 +279,12 @@ mod imp {
                 speed_menu.append(Some(&speed_label(rate)), Some(&format!("video.speed::{}", rate)));
             }
             speed_button.set_menu_model(Some(&speed_menu));
-            speed_button.set_tooltip_text(Some(&gettext("Speed")));
+            speed_button.update_property(&[gtk::accessible::Property::Label(&gettext("Speed"))]);
             speed_button.set_direction(gtk::ArrowType::Up);
 
             let loop_button = gtk::ToggleButton::new();
             loop_button.set_icon_name("glance-loop-symbolic");
-            loop_button.set_tooltip_text(Some(&gettext("Loop")));
+            loop_button.update_property(&[gtk::accessible::Property::Label(&gettext("Loop"))]);
             loop_button.connect_toggled(clone!(
                 #[weak]
                 obj,
@@ -293,14 +292,14 @@ mod imp {
             ));
 
             let skip_back = gtk::Button::from_icon_name("glance-skip-back-symbolic");
-            skip_back.set_tooltip_text(Some(&gettext("Back 10 Seconds")));
+            skip_back.update_property(&[gtk::accessible::Property::Label(&gettext("Back 10 Seconds"))]);
             skip_back.connect_clicked(clone!(
                 #[weak]
                 obj,
                 move |_| obj.skip(false)
             ));
             let skip_forward = gtk::Button::from_icon_name("glance-skip-forward-symbolic");
-            skip_forward.set_tooltip_text(Some(&gettext("Forward 10 Seconds")));
+            skip_forward.update_property(&[gtk::accessible::Property::Label(&gettext("Forward 10 Seconds"))]);
             skip_forward.connect_clicked(clone!(
                 #[weak]
                 obj,
@@ -308,7 +307,7 @@ mod imp {
             ));
 
             let fullscreen = gtk::Button::from_icon_name("glance-fullscreen-symbolic");
-            fullscreen.set_tooltip_text(Some(&gettext("Fullscreen")));
+            fullscreen.update_property(&[gtk::accessible::Property::Label(&gettext("Fullscreen"))]);
             fullscreen.connect_clicked(|button| {
                 let _ = button.activate_action("win.toggle-fullscreen", None);
             });
@@ -363,6 +362,26 @@ mod imp {
             bar.append(&button_row);
             bar.insert_action_group("video", Some(&self.actions));
 
+            // Menus look like the card and open above it, not over it
+            for button in [&speed_button, &tracks] {
+                if let Some(popover) = button.popover() {
+                    popover.add_css_class("video-menu");
+                    popover.set_has_arrow(false);
+                    popover.connect_show(clone!(
+                        #[weak]
+                        bar,
+                        #[weak]
+                        button,
+                        move |popover| {
+                            let lift = button
+                                .compute_point(&bar, &graphene::Point::new(0., 0.))
+                                .map_or(0, |p| p.y() as i32);
+                            popover.set_offset(0, -lift - 8);
+                        }
+                    ));
+                }
+            }
+
             let clamp = adw::Clamp::new();
             clamp.set_maximum_size(780);
             clamp.set_child(Some(&bar));
@@ -407,30 +426,22 @@ mod imp {
         fn setup_preview(&self) {
             let obj = self.obj();
 
-            self.preview_picture.set_size_request(160, 90);
+            // A small frosted card in the page, not a popup, so showing it
+            // never takes the pointer off the seek bar
+            self.preview_picture.set_size_request(112, 63);
             self.preview_picture
                 .set_content_fit(gtk::ContentFit::Contain);
             self.preview_label.add_css_class("numeric");
             self.preview_label.add_css_class("caption");
-            let preview_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            preview_box.append(&self.preview_picture);
-            preview_box.append(&self.preview_label);
-            self.preview.set_child(Some(&preview_box));
-            self.preview.set_autohide(false);
+            self.preview.set_orientation(gtk::Orientation::Vertical);
+            self.preview.set_spacing(4);
+            self.preview.add_css_class("video-preview");
+            self.preview.append(&self.preview_picture);
+            self.preview.append(&self.preview_label);
+            self.preview.set_halign(gtk::Align::Start);
+            self.preview.set_valign(gtk::Align::End);
             self.preview.set_can_target(false);
-            self.preview.set_position(gtk::PositionType::Top);
-            self.preview.set_parent(&self.seek);
-            // The popover must leave before the seek bar is freed, or GTK
-            // keeps a pointer to the freed bar
-            self.seek.connect_destroy(clone!(
-                #[weak(rename_to = preview)]
-                self.preview,
-                move |_| {
-                    if preview.parent().is_some() {
-                        preview.unparent();
-                    }
-                }
-            ));
+            self.preview.set_visible(false);
 
             let motion = gtk::EventControllerMotion::new();
             motion.connect_motion(clone!(
@@ -444,7 +455,7 @@ mod imp {
                 move |_| {
                     let imp = obj.imp();
                     imp.preview_wanted.set(None);
-                    imp.preview.popdown();
+                    imp.preview.set_visible(false);
                 }
             ));
             self.seek.add_controller(motion);
@@ -460,11 +471,19 @@ mod imp {
                 gst::ClockTime::from_nseconds((duration.nseconds() as f64 * fraction) as u64);
 
             self.preview_label.set_label(&format_time(position));
-            self.preview
-                .set_pointing_to(Some(&gdk::Rectangle::new(x as i32, 0, 1, 1)));
-            if !self.preview.is_visible() {
-                self.preview.popup();
+            // Centred above the pointer, inside the page
+            if let Some(overlay) = self.overlay.upgrade()
+                && let Some(point) =
+                    self.seek.compute_point(&overlay, &graphene::Point::new(x as f32, 0.))
+            {
+                let (_, width, _, _) = self.preview.measure(gtk::Orientation::Horizontal, -1);
+                let max = (overlay.width() - width - 8).max(8);
+                let start = (point.x() as i32 - width / 2).clamp(8, max);
+                self.preview.set_margin_start(start);
+                self.preview
+                    .set_margin_bottom(overlay.height() - point.y() as i32 + 12);
             }
+            self.preview.set_visible(true);
 
             self.preview_wanted.set(Some(position));
             self.load_preview();
@@ -582,9 +601,9 @@ mod imp {
             self.delay_label.add_css_class("numeric");
             self.delay_label.set_width_chars(7);
             let earlier = gtk::Button::from_icon_name("minus-large-symbolic");
-            earlier.set_tooltip_text(Some(&gettext("Show Subtitles Earlier")));
+            earlier.update_property(&[gtk::accessible::Property::Label(&gettext("Show Subtitles Earlier"))]);
             let later = gtk::Button::from_icon_name("plus-large-symbolic");
-            later.set_tooltip_text(Some(&gettext("Show Subtitles Later")));
+            later.update_property(&[gtk::accessible::Property::Label(&gettext("Show Subtitles Later"))]);
             for button in [&earlier, &later] {
                 button.add_css_class("flat");
                 button.add_css_class("circular");
@@ -642,7 +661,7 @@ mod imp {
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-subtitles-symbolic");
             button.set_popover(Some(&popover));
-            button.set_tooltip_text(Some(&gettext("Subtitles and Audio")));
+            button.update_property(&[gtk::accessible::Property::Label(&gettext("Subtitles and Audio"))]);
             button.set_direction(gtk::ArrowType::Up);
             button.add_css_class("flat");
             button.add_css_class("circular");
@@ -857,11 +876,11 @@ mod imp {
                 } else {
                     "glance-fullscreen-symbolic"
                 });
-                button.set_tooltip_text(Some(&if fullscreen {
+                button.update_property(&[gtk::accessible::Property::Label(&if fullscreen {
                     gettext("Leave Fullscreen")
                 } else {
                     gettext("Fullscreen")
-                }));
+                })]);
             }
             self.picture.set_cursor(None);
             self.schedule_hide();
@@ -1153,6 +1172,8 @@ impl LpVideoPlayer {
         overlay.add_overlay(&frost);
         imp.frost.replace(Some(frost));
         overlay.add_overlay(&imp.controls);
+        overlay.add_overlay(&imp.preview);
+        imp.overlay.set(Some(overlay));
         overlay.set_measure_overlay(&imp.picture, false);
 
         if let Err(err) = obj.build_pipeline(file) {
@@ -1254,6 +1275,7 @@ impl LpVideoPlayer {
             overlay.remove_overlay(&frost);
         }
         overlay.remove_overlay(&imp.controls);
+        overlay.remove_overlay(&imp.preview);
     }
 
     pub fn is_active(&self) -> bool {
@@ -1343,7 +1365,7 @@ impl LpVideoPlayer {
             }
             imp.play_button
                 .set_icon_name("glance-pause-symbolic");
-            imp.play_button.set_tooltip_text(Some(&gettext("Pause")));
+            imp.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Pause"))]);
             imp.inhibit();
             if imp.tick.borrow().is_none() {
                 let source = glib::timeout_add_local(
@@ -1364,7 +1386,7 @@ impl LpVideoPlayer {
         } else {
             imp.play_button
                 .set_icon_name("glance-play-symbolic");
-            imp.play_button.set_tooltip_text(Some(&gettext("Play")));
+            imp.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Play"))]);
             imp.uninhibit();
             if let Some(source) = imp.tick.take() {
                 source.remove();

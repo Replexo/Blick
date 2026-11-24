@@ -33,7 +33,7 @@ use crate::deps::*;
 use crate::widgets::LpImage;
 
 const BLUR_RADIUS: f32 = 18.;
-const CLASSES: [&str; 3] = ["glance-pill", "glance-name", "video-controls"];
+const CLASSES: [&str; 4] = ["glance-pill", "glance-name", "video-controls", "video-preview"];
 /// Corner radius of the video controls card; the other panes are pills
 const CARD_RADIUS: f32 = 12.;
 
