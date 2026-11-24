@@ -34,15 +34,19 @@ use crate::util::gettext::*;
 
 /// Thumbnail edge length in logical pixels
 const THUMBNAIL_SIZE: i32 = 46;
-/// Thumbnail edge length in the compact folder strip
-const COMPACT_SIZE: i32 = 44;
-/// Edge length of the current thumbnail in the compact folder strip
-const COMPACT_CURRENT_SIZE: i32 = 56;
+/// Height of the compact folder strip's thumbnails
+const COMPACT_HEIGHT: i32 = 36;
+/// Width of the other photos in the compact strip: narrow and tall
+const COMPACT_SIZE: i32 = 24;
+/// Widest the current photo gets, which shows its real shape
+const COMPACT_CURRENT_MAX: i32 = 64;
+/// Width of the fades at the ends of a strip wider than the window
+const EDGE_FADE: f32 = 32.;
 /// Space around each thumbnail from the CSS, see `thumbnails.css`
 const ITEM_SPACE: i32 = 8;
 const COMPACT_ITEM_SPACE: i32 = 2;
 /// Extra space around the current thumbnail in the compact strip
-const COMPACT_CURRENT_SPACE: i32 = 12;
+const COMPACT_CURRENT_SPACE: i32 = 8;
 /// Thumbnails kept in memory before the cache starts over
 const CACHE_LIMIT: usize = 300;
 /// Wait before loading, so thumbnails only scrolled past aren't loaded
@@ -146,7 +150,36 @@ mod imp {
         }
     }
 
-    impl WidgetImpl for LpThumbnailStrip {}
+    impl WidgetImpl for LpThumbnailStrip {
+        /// A strip wider than the window fades out at both ends
+        fn snapshot(&self, snapshot: &gtk::Snapshot) {
+            let obj = self.obj();
+            let adjustment = self.scrolled.hadjustment();
+            if adjustment.upper() <= adjustment.page_size() + 1. {
+                self.parent_snapshot(snapshot);
+                return;
+            }
+            let (width, height) = (obj.width() as f32, obj.height() as f32);
+            let fade = (EDGE_FADE / width.max(1.)).min(0.5);
+            let clear = gdk::RGBA::new(0., 0., 0., 0.);
+            let solid = gdk::RGBA::new(0., 0., 0., 1.);
+            snapshot.push_mask(gsk::MaskMode::Alpha);
+            snapshot.append_linear_gradient(
+                &graphene::Rect::new(0., 0., width, height),
+                &graphene::Point::new(0., 0.),
+                &graphene::Point::new(width, 0.),
+                &[
+                    gsk::ColorStop::new(0., clear),
+                    gsk::ColorStop::new(fade, solid),
+                    gsk::ColorStop::new(1. - fade, solid),
+                    gsk::ColorStop::new(1., clear),
+                ],
+            );
+            snapshot.pop();
+            self.parent_snapshot(snapshot);
+            snapshot.pop();
+        }
+    }
     impl BinImpl for LpThumbnailStrip {}
 
     impl LpThumbnailStrip {
@@ -224,11 +257,10 @@ mod imp {
                 return;
             };
             button.set_tooltip_text(util::get_file_display_name(&file).as_deref());
-            self.style_item(item);
-
             let uri = file.uri().to_string();
             let cached = self.cache.borrow().get(&uri).cloned();
             picture.set_paintable(cached.as_ref());
+            self.style_item(item);
             if cached.is_some() {
                 return;
             }
@@ -264,6 +296,8 @@ mod imp {
                             drop(cache);
                             if still_bound(&item) {
                                 picture.set_paintable(Some(&texture));
+                                // The current photo's width follows its shape
+                                obj.imp().style_item(&item);
                             }
                         }
                         Err(err) => tracing::debug!("No thumbnail: {err}"),
@@ -292,18 +326,31 @@ mod imp {
                 close.set_visible(self.removable.get());
             }
 
-            let size = match (self.compact.get(), current) {
-                (true, false) => COMPACT_SIZE,
-                (true, true) => COMPACT_CURRENT_SIZE,
-                (false, _) => THUMBNAIL_SIZE,
-            };
-            if let Some(picture) = overlay
+            let picture = overlay
                 .child()
                 .and_downcast::<gtk::Button>()
                 .and_then(|button| button.child())
-            {
-                picture.set_size_request(size, size);
-            }
+                .and_downcast::<gtk::Picture>();
+            let Some(picture) = picture else {
+                return;
+            };
+            let (width, height) = match (self.compact.get(), current) {
+                (true, false) => (COMPACT_SIZE, COMPACT_HEIGHT),
+                // The current photo shows its real shape
+                (true, true) => (self.current_width(&picture), COMPACT_HEIGHT),
+                (false, _) => (THUMBNAIL_SIZE, THUMBNAIL_SIZE),
+            };
+            picture.set_size_request(width, height);
+        }
+
+        /// Width of the current photo in the compact strip, from its shape
+        fn current_width(&self, picture: &gtk::Picture) -> i32 {
+            let aspect = picture
+                .paintable()
+                .map(|p| p.intrinsic_aspect_ratio())
+                .filter(|aspect| *aspect > 0.)
+                .unwrap_or(1.);
+            ((COMPACT_HEIGHT as f64 * aspect).round() as i32).clamp(COMPACT_SIZE, COMPACT_CURRENT_MAX)
         }
 
         /// Limits the width to the thumbnails
@@ -315,7 +362,7 @@ mod imp {
             let width = if n == 0 {
                 -1
             } else if self.compact.get() {
-                n * (COMPACT_SIZE + COMPACT_ITEM_SPACE) + (COMPACT_CURRENT_SIZE - COMPACT_SIZE)
+                n * (COMPACT_SIZE + COMPACT_ITEM_SPACE) + (COMPACT_CURRENT_MAX - COMPACT_SIZE)
                     + COMPACT_CURRENT_SPACE
             } else {
                 n * (THUMBNAIL_SIZE + ITEM_SPACE)

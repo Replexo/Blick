@@ -29,10 +29,6 @@ impl LpImageWindow {
         if let Some(window) = self.try_window() {
             self.image_view().controls_box_start().set_opacity(opacity);
             self.image_view().controls_box_end().set_opacity(opacity);
-            // The folder strip only fades while it floats over the image
-            if window.is_fullscreen() {
-                self.image_view().folder_strip().set_opacity(opacity);
-            }
 
             if self.is_headerbar_flat() && window.is_fullscreen() {
                 self.headerbar().set_opacity(opacity);

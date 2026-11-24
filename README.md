@@ -26,7 +26,7 @@ Blick runs on any Linux desktop and comes as a Flatpak, an AppImage, and package
 
 Everything you know from Loupe: fast and sandboxed image loading, smooth zoom and gestures, image metadata, printing and setting a picture as the background.
 
-A strip of thumbnails below the photo lets you jump to the other photos in the folder. In fullscreen it floats over the photo and appears when you move the mouse.
+Small thumbnails float over the bottom of the photo to jump to the other photos and videos in the folder. They show when you move the pointer to the bottom or change photo, and fade away after a few seconds.
 
 ### Videos
 

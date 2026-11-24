@@ -1087,7 +1087,6 @@ impl LpImageWindow {
             "view-fullscreen-symbolic"
         };
         self.imp().fullscreen_button.set_icon_name(icon);
-        self.image_view().set_folder_strip_overlay(is_fullscreen);
 
         self.update_headerbar_style();
 

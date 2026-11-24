@@ -51,6 +51,11 @@ use crate::widgets::{LpImage, LpImagePage, LpPrint, LpSlidingView, LpThumbnailSt
 // on either side of the current page.
 const BUFFER: usize = 2;
 
+/// The folder strip hides after this long without use
+const STRIP_HIDE_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+/// Moving the pointer this close to the bottom shows the folder strip
+const STRIP_HOVER_AREA: f64 = 96.;
+
 mod imp {
 
     use super::*;
@@ -75,6 +80,8 @@ mod imp {
         pub(super) folder_strip: TemplateChild<LpThumbnailStrip>,
         #[template_child]
         pub(super) folder_strip_events: TemplateChild<gtk::EventControllerMotion>,
+        pub(super) strip_animation: std::cell::OnceCell<adw::TimedAnimation>,
+        pub(super) strip_timeout: RefCell<Option<glib::SourceId>>,
         /// Holds the image and, outside fullscreen, the folder strip below it
         #[template_child]
         pub(super) view_box: TemplateChild<gtk::Box>,
@@ -187,6 +194,7 @@ mod imp {
 
             self.folder_strip.set_removable(false);
             self.folder_strip.set_compact(true);
+            obj.setup_folder_strip_visibility();
             self.folder_strip.connect_activate_file(glib::clone!(
                 #[weak]
                 obj,
@@ -771,7 +779,81 @@ impl LpImageView {
         self.imp().folder_strip_events.clone()
     }
 
-    /// Float the folder strip over the image (fullscreen) or dock it below
+    /// The folder strip floats over the photo. It shows when the pointer
+    /// comes near the bottom or the photo changes, and fades out after
+    /// `STRIP_HIDE_DELAY` unless the pointer is on it.
+    fn setup_folder_strip_visibility(&self) {
+        let imp = self.imp();
+        self.set_folder_strip_overlay(true);
+        imp.folder_strip.set_opacity(0.);
+        imp.folder_strip.set_can_target(false);
+
+        let target = adw::PropertyAnimationTarget::new(&*imp.folder_strip, "opacity");
+        let animation = adw::TimedAnimation::new(&*imp.folder_strip, 0., 1., 200, target);
+        let _ = imp.strip_animation.set(animation);
+
+        let motion = gtk::EventControllerMotion::new();
+        // Before the photo and its gestures see the pointer
+        motion.set_propagation_phase(gtk::PropagationPhase::Capture);
+        motion.connect_motion(glib::clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_, _, y| {
+                if y > obj.height() as f64 - STRIP_HOVER_AREA {
+                    obj.show_folder_strip();
+                }
+            }
+        ));
+        self.add_controller(motion);
+    }
+
+    pub fn show_folder_strip(&self) {
+        let imp = self.imp();
+        if !imp.folder_strip.is_visible() {
+            return;
+        }
+        imp.folder_strip.set_can_target(true);
+        self.fade_folder_strip(1.);
+
+        if let Some(source) = imp.strip_timeout.take() {
+            source.remove();
+        }
+        let source = glib::timeout_add_local_once(
+            STRIP_HIDE_DELAY,
+            glib::clone!(
+                #[weak(rename_to = obj)]
+                self,
+                move || {
+                    let imp = obj.imp();
+                    imp.strip_timeout.take();
+                    if imp.folder_strip_events.contains_pointer() {
+                        obj.show_folder_strip();
+                    } else {
+                        imp.folder_strip.set_can_target(false);
+                        obj.fade_folder_strip(0.);
+                    }
+                }
+            ),
+        );
+        imp.strip_timeout.replace(Some(source));
+    }
+
+    fn fade_folder_strip(&self, to: f64) {
+        let imp = self.imp();
+        let Some(animation) = imp.strip_animation.get() else {
+            return;
+        };
+        if (animation.value_to() - to).abs() < f64::EPSILON
+            && animation.state() == adw::AnimationState::Playing
+        {
+            return;
+        }
+        animation.set_value_from(imp.folder_strip.opacity());
+        animation.set_value_to(to);
+        animation.play();
+    }
+
+    /// Floats the folder strip over the photo, or docks it below
     pub fn set_folder_strip_overlay(&self, overlay: bool) {
         let imp = self.imp();
         let strip = imp.folder_strip.get();
@@ -986,6 +1068,7 @@ impl LpImageView {
     fn page_changed(&self) {
         self.update_videos();
         self.update_folder_strip();
+        self.show_folder_strip();
         self.notify_current_page();
         self.notify_is_next_available();
         self.notify_is_previous_available();

@@ -46,10 +46,10 @@ lpthumbnailstrip .thumbnail-close image {
   -gtk-icon-size: 10px;
 }
 
-/* Folder strip: full-width band of small thumbnails, the current one is larger */
+/* Folder strip: small thumbnails floating over the photo, the current one
+   shows its real shape */
 lpthumbnailstrip.folder-strip {
-  background-color: var(--osd-background-color);
-  padding: 6px 0;
+  padding: 12px 0;
 }
 
 lpthumbnailstrip.compact listview > row {
@@ -57,11 +57,11 @@ lpthumbnailstrip.compact listview > row {
 }
 
 lpthumbnailstrip.compact .thumbnail {
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 lpthumbnailstrip.compact .current {
-  margin: 0 6px;
+  margin: 0 4px;
 }
 
 lpthumbnailstrip.compact .current .thumbnail {
