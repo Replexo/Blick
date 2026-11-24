@@ -11,7 +11,7 @@ url='https://github.com/Replexo/Blink'
 license=('GPL-3.0-or-later')
 depends=('gtk4>=4.20' 'libadwaita>=1.8' 'libgweather-4' 'libseccomp' 'lcms2'
          'fontconfig' 'libsoup3' 'tesseract' 'tesseract-data-eng' 'glycin' 'bubblewrap'
-         'gstreamer' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugin-gtk4')
+         'gstreamer' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugin-gtk4' 'libsecret')
 optdepends=('gst-libav: more video formats'
             'gst-plugins-bad: more video formats'
             'gst-plugins-ugly: more video formats'

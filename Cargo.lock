@@ -266,6 +266,7 @@ dependencies = [
  "gstreamer",
  "gstreamer-audio",
  "gstreamer-pbutils",
+ "gstreamer-tag",
  "gstreamer-video",
  "gtk4",
  "gufo",
@@ -275,6 +276,7 @@ dependencies = [
  "libadwaita",
  "libc",
  "libgweather",
+ "libsecret",
  "moxcms",
  "pango",
  "pangocairo",
@@ -1317,6 +1319,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "gstreamer-tag"
+version = "0.25.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790d1c673da71c87e9648d98e96cdd785784ae948a9728b95b2c7c10f6f4ee61"
+dependencies = [
+ "glib",
+ "gstreamer",
+ "gstreamer-tag-sys",
+ "libc",
+]
+
+[[package]]
+name = "gstreamer-tag-sys"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ae01f8c50fca5b69d7002337a4aefc81a3c5574da9232c80b5aaf2301b641647"
+dependencies = [
+ "glib-sys",
+ "gobject-sys",
+ "gstreamer-sys",
+ "libc",
+ "system-deps 9.0.1",
+]
+
+[[package]]
 name = "gstreamer-video"
 version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1817,6 +1844,32 @@ name = "libseccomp-sys"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60276e2d41bbb68b323e566047a1bfbf952050b157d8b5cdc74c07c1bf4ca3b6"
+
+[[package]]
+name = "libsecret"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b531fb2284b303e0f6d214043e641e5da56053a886413c726e69384f9c8d2335"
+dependencies = [
+ "gio",
+ "glib",
+ "libc",
+ "libsecret-sys",
+]
+
+[[package]]
+name = "libsecret-sys"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80477411ab81517171559cbb6d48fc024122df02787551ada766c709ffa2859a"
+dependencies = [
+ "gio-sys",
+ "glib-sys",
+ "gobject-sys",
+ "libc",
+ "pkg-config",
+ "system-deps 7.0.8",
+]
 
 [[package]]
 name = "linux-raw-sys"

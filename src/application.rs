@@ -170,6 +170,11 @@ impl LpApplication {
             gio::ActionEntryBuilder::new("make-default")
                 .activate(|app: &Self, _, _| app.make_default(crate::default_app::Kind::Image))
                 .build(),
+            gio::ActionEntryBuilder::new("preferences")
+                .activate(|app: &Self, _, _| {
+                    crate::widgets::present_preferences(app.active_window().as_ref())
+                })
+                .build(),
             gio::ActionEntryBuilder::new("make-default-video")
                 .activate(|app: &Self, _, _| app.make_default(crate::default_app::Kind::Video))
                 .build(),
@@ -190,11 +195,11 @@ impl LpApplication {
         ];
 
         self.add_action_entries(actions);
-        self.add_action(&self.settings().create_action("autoplay-next"));
         self.update_make_default();
         self.watch_defaults();
 
         self.set_accels_for_action("app.help", &["F1"]);
+        self.set_accels_for_action("app.preferences", &["<Ctrl>comma"]);
         self.set_accels_for_action("app.quit", &["<Ctrl>Q"]);
         self.set_accels_for_action("window.close", &["<Ctrl>W"]);
         self.set_accels_for_action("app.new-window", &["<Ctrl>N"]);

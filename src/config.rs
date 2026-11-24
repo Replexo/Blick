@@ -20,6 +20,9 @@ pub const VERSION: &str = default_env(option_env!("VERSION"), "unknown");
 pub const LOCALEDIR: &str = default_env(option_env!("LOCALEDIR"), "/usr/share/locale/");
 /// Whether Blink looks for new releases on GitHub, off for Flathub and distributions
 pub const UPDATE_CHECK: bool = is_true(option_env!("UPDATE_CHECK"));
+/// API key for opensubtitles.com, registered for Blink; empty turns the
+/// online subtitle search off
+pub const OPENSUBTITLES_API_KEY: &str = "";
 
 const fn default_env(v: Option<&'static str>, default: &'static str) -> &'static str {
     match v {

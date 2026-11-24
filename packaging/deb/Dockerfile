@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libglib2.0-dev-bin libgtk-4-dev libadwaita-1-dev libgweather-4-dev \
         libseccomp-dev liblcms2-dev libfontconfig-dev libsoup-3.0-dev \
         libtesseract-dev libleptonica-dev \
-        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+        libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libsecret-1-dev \
         dpkg-dev file \
         # AppImage
         libfuse2t64 squashfs-tools patchelf librsvg2-common \

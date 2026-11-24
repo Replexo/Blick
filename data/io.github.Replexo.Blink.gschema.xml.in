@@ -9,5 +9,13 @@
       <default>false</default>
       <summary>Play the next video in the folder when one ends</summary>
     </key>
+    <key name="opensubtitles-username" type="s">
+      <default>""</default>
+      <summary>OpenSubtitles username; the password is kept in the keyring</summary>
+    </key>
+    <key name="subtitle-language" type="s">
+      <default>""</default>
+      <summary>Language of online subtitle searches, empty for the system language</summary>
+    </key>
   </schema>
 </schemalist>

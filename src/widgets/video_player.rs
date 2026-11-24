@@ -45,6 +45,10 @@ const HIDE_DELAY: Duration = Duration::from_secs(3);
 const SPEEDS: [f64; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 /// Positions closer than this to the start or end are not remembered
 const RESUME_MARGIN: f64 = 5.;
+/// Subtitle files that are picked up next to a video
+pub const SUBTITLE_EXTENSIONS: [&str; 5] = ["srt", "vtt", "ass", "ssa", "sub"];
+/// Subtitle font sizes for small, medium and large
+const SUBTITLE_SIZES: [(&str, u32); 3] = [("small", 16), ("medium", 22), ("large", 30)];
 
 thread_local! {
     /// Volume and mute, shared by all videos
@@ -98,6 +102,19 @@ mod imp {
         /// Where the pointer is on the seek bar, and if a frame is loading
         pub(super) preview_wanted: Cell<Option<gst::ClockTime>>,
         pub(super) preview_loading: Cell<bool>,
+
+        /// Tracks of the video and which are chosen; no text stream means
+        /// subtitles are off
+        pub(super) streams: RefCell<Option<gst::StreamCollection>>,
+        pub(super) audio_stream: RefCell<Option<String>>,
+        pub(super) text_stream: RefCell<Option<String>>,
+        /// Subtitle file loaded next to the video, chosen when it appears
+        pub(super) subtitle_file: RefCell<Option<gio::File>>,
+        pub(super) select_new_subtitle: Cell<bool>,
+        /// Position and playing state to restore after reloading
+        pub(super) restore: Cell<Option<(gst::ClockTime, bool)>>,
+        pub(super) tracks_menu: gio::Menu,
+        pub(super) delay_label: gtk::Label,
     }
 
     #[glib::object_subclass]
@@ -291,6 +308,8 @@ mod imp {
             options.add_css_class("flat");
             options.add_css_class("circular");
 
+            let tracks = self.build_tracks_button();
+
             let bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             bar.add_css_class("osd");
             bar.add_css_class("toolbar");
@@ -303,6 +322,7 @@ mod imp {
             bar.append(&self.seek);
             bar.append(&self.duration_label);
             bar.append(&self.volume_button);
+            bar.append(&tracks);
             bar.append(&options);
             bar.insert_action_group("video", Some(&self.actions));
 
@@ -430,6 +450,246 @@ mod imp {
                     }
                 }
             ));
+        }
+
+        /// Button with subtitles, audio tracks, subtitle size and delay
+        fn build_tracks_button(&self) -> gtk::MenuButton {
+            let obj = self.obj();
+
+            let subtitle = gio::SimpleAction::new_stateful(
+                "subtitle",
+                Some(glib::VariantTy::STRING),
+                &"".to_variant(),
+            );
+            subtitle.connect_activate(clone!(
+                #[weak]
+                obj,
+                move |action, target| {
+                    let Some(id) = target.and_then(|x| x.get::<String>()) else {
+                        return;
+                    };
+                    action.set_state(&id.to_variant());
+                    let imp = obj.imp();
+                    imp.text_stream
+                        .replace((!id.is_empty()).then_some(id));
+                    imp.select_streams();
+                }
+            ));
+            self.actions.add_action(&subtitle);
+
+            let audio = gio::SimpleAction::new_stateful(
+                "audio",
+                Some(glib::VariantTy::STRING),
+                &"".to_variant(),
+            );
+            audio.connect_activate(clone!(
+                #[weak]
+                obj,
+                move |action, target| {
+                    let Some(id) = target.and_then(|x| x.get::<String>()) else {
+                        return;
+                    };
+                    action.set_state(&id.to_variant());
+                    obj.imp().audio_stream.replace(Some(id));
+                    obj.imp().select_streams();
+                }
+            ));
+            self.actions.add_action(&audio);
+
+            let size = gio::SimpleAction::new_stateful(
+                "subtitle-size",
+                Some(glib::VariantTy::STRING),
+                &"medium".to_variant(),
+            );
+            size.connect_activate(clone!(
+                #[weak]
+                obj,
+                move |action, target| {
+                    let Some(name) = target.and_then(|x| x.get::<String>()) else {
+                        return;
+                    };
+                    action.set_state(&name.to_variant());
+                    obj.imp().apply_subtitle_size(&name);
+                }
+            ));
+            self.actions.add_action(&size);
+
+            let open = gio::SimpleAction::new("open-subtitles", None);
+            open.connect_activate(clone!(
+                #[weak]
+                obj,
+                move |_, _| {
+                    glib::spawn_future_local(async move { obj.choose_subtitles().await });
+                }
+            ));
+            self.actions.add_action(&open);
+
+            let search = gio::SimpleAction::new("search-subtitles", None);
+            search.connect_activate(clone!(
+                #[weak]
+                obj,
+                move |_, _| obj.search_subtitles()
+            ));
+            self.actions.add_action(&search);
+
+            // Subtitle delay, in steps of 0.1 s
+            let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            delay_box.set_margin_start(12);
+            delay_box.set_margin_end(12);
+            let delay_title = gtk::Label::new(Some(&gettext("Delay")));
+            delay_title.set_hexpand(true);
+            delay_title.set_xalign(0.);
+            self.delay_label.add_css_class("numeric");
+            self.delay_label.set_width_chars(7);
+            let earlier = gtk::Button::from_icon_name("list-remove-symbolic");
+            earlier.set_tooltip_text(Some(&gettext("Show Subtitles Earlier")));
+            let later = gtk::Button::from_icon_name("list-add-symbolic");
+            later.set_tooltip_text(Some(&gettext("Show Subtitles Later")));
+            for button in [&earlier, &later] {
+                button.add_css_class("flat");
+                button.add_css_class("circular");
+            }
+            earlier.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.imp().shift_subtitles(-100)
+            ));
+            later.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.imp().shift_subtitles(100)
+            ));
+            delay_box.append(&delay_title);
+            delay_box.append(&earlier);
+            delay_box.append(&self.delay_label);
+            delay_box.append(&later);
+            self.update_delay_label(0);
+
+            let popover = gtk::PopoverMenu::from_model(Some(&self.tracks_menu));
+            popover.add_child(&delay_box, "delay");
+            let button = gtk::MenuButton::new();
+            button.set_icon_name("media-view-subtitles-symbolic");
+            button.set_popover(Some(&popover));
+            button.set_tooltip_text(Some(&gettext("Subtitles and Audio")));
+            button.set_direction(gtk::ArrowType::Up);
+            button.add_css_class("flat");
+            button.add_css_class("circular");
+            self.update_tracks_menu();
+            button
+        }
+
+        /// Stream ids of `stream_type` with a readable name each
+        pub(super) fn stream_ids(&self, stream_type: gst::StreamType) -> Vec<(String, String)> {
+            let Some(collection) = self.streams.borrow().clone() else {
+                return Vec::new();
+            };
+            collection
+                .iter()
+                .filter(|stream| stream.stream_type().contains(stream_type))
+                .enumerate()
+                .filter_map(|(index, stream)| {
+                    Some((stream.stream_id()?.to_string(), stream_label(&stream, index + 1)))
+                })
+                .collect()
+        }
+
+        pub(super) fn update_tracks_menu(&self) {
+            let menu = &self.tracks_menu;
+            menu.remove_all();
+
+            let subtitles = gio::Menu::new();
+            subtitles.append(Some(&gettext("Off")), Some("video.subtitle::"));
+            for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
+                let item = gio::MenuItem::new(Some(&label), None);
+                item.set_action_and_target_value(Some("video.subtitle"), Some(&id.to_variant()));
+                subtitles.append_item(&item);
+            }
+            subtitles.append(Some(&gettext("_Open Subtitles…")), Some("video.open-subtitles"));
+            subtitles.append(
+                Some(&gettext("_Search Subtitles Online…")),
+                Some("video.search-subtitles"),
+            );
+            menu.append_section(Some(&gettext("Subtitles")), &subtitles);
+
+            let audio_tracks = self.stream_ids(gst::StreamType::AUDIO);
+            if audio_tracks.len() > 1 {
+                let audio = gio::Menu::new();
+                for (id, label) in audio_tracks {
+                    let item = gio::MenuItem::new(Some(&label), None);
+                    item.set_action_and_target_value(Some("video.audio"), Some(&id.to_variant()));
+                    audio.append_item(&item);
+                }
+                menu.append_section(Some(&gettext("Audio")), &audio);
+            }
+
+            let size = gio::Menu::new();
+            size.append(Some(&gettext("Small")), Some("video.subtitle-size::small"));
+            size.append(Some(&gettext("Medium")), Some("video.subtitle-size::medium"));
+            size.append(Some(&gettext("Large")), Some("video.subtitle-size::large"));
+            menu.append_section(Some(&gettext("Subtitle Size")), &size);
+
+            let delay = gio::Menu::new();
+            let item = gio::MenuItem::new(None, None);
+            item.set_attribute_value("custom", Some(&"delay".to_variant()));
+            delay.append_item(&item);
+            menu.append_section(None, &delay);
+
+            // Show the chosen tracks
+            if let Some(action) = self.actions.lookup_action("subtitle") {
+                let id = self.text_stream.borrow().clone().unwrap_or_default();
+                action.change_state(&id.to_variant());
+            }
+            if let Some(action) = self.actions.lookup_action("audio") {
+                let id = self.audio_stream.borrow().clone().unwrap_or_default();
+                action.change_state(&id.to_variant());
+            }
+        }
+
+        /// Plays the chosen audio track and subtitles, with the first video
+        pub(super) fn select_streams(&self) {
+            let Some(playbin) = self.playbin.get() else {
+                return;
+            };
+            let mut ids: Vec<String> = Vec::new();
+            ids.extend(self.stream_ids(gst::StreamType::VIDEO).into_iter().take(1).map(|x| x.0));
+            match self.audio_stream.borrow().clone() {
+                Some(audio) => ids.push(audio),
+                None => ids.extend(
+                    self.stream_ids(gst::StreamType::AUDIO).into_iter().take(1).map(|x| x.0),
+                ),
+            }
+            if let Some(text) = self.text_stream.borrow().clone() {
+                ids.push(text);
+            }
+            playbin.send_event(gst::event::SelectStreams::new(ids.iter().map(|x| x.as_str())));
+        }
+
+        pub(super) fn apply_subtitle_size(&self, name: &str) {
+            let Some(playbin) = self.playbin.get() else {
+                return;
+            };
+            let points = SUBTITLE_SIZES
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map_or(22, |(_, points)| *points);
+            playbin.set_property("subtitle-font-desc", format!("Sans {points}"));
+        }
+
+        /// Moves subtitles by `milliseconds`, later for positive values
+        fn shift_subtitles(&self, milliseconds: i64) {
+            let Some(playbin) = self.playbin.get() else {
+                return;
+            };
+            let offset = playbin.property::<i64>("text-offset") + milliseconds * 1_000_000;
+            playbin.set_property("text-offset", offset);
+            self.update_delay_label(offset);
+        }
+
+        fn update_delay_label(&self, offset_ns: i64) {
+            let seconds = offset_ns as f64 / 1e9;
+            // Translators: Subtitle delay in seconds, {} is a number like +0.5
+            self.delay_label
+                .set_label(&gettext_f("{} s", [format!("{seconds:+.1}")]));
         }
 
         fn setup_shortcuts(&self) {
@@ -626,6 +886,12 @@ mod imp {
                 }
                 gst::MessageView::AsyncDone(_) => {
                     self.update_duration();
+                    if let Some((position, playing)) = self.restore.take() {
+                        obj.seek_to(position);
+                        if playing {
+                            obj.set_playing(true);
+                        }
+                    }
                     if !self.prerolled.replace(true) {
                         self.resume();
                     }
@@ -639,6 +905,31 @@ mod imp {
                     }
                 }
                 gst::MessageView::DurationChanged(_) => self.update_duration(),
+                gst::MessageView::StreamCollection(msg) => {
+                    self.streams.replace(Some(msg.stream_collection()));
+                    if self.select_new_subtitle.replace(false) {
+                        // The newest text stream is the loaded file
+                        let last_text = self.stream_ids(gst::StreamType::TEXT).pop();
+                        self.text_stream.replace(last_text.map(|(id, _)| id));
+                        self.select_streams();
+                    }
+                    self.update_tracks_menu();
+                }
+                gst::MessageView::StreamsSelected(msg) => {
+                    let mut audio = None;
+                    let mut text = None;
+                    for stream in msg.streams() {
+                        let id = stream.stream_id().map(|x| x.to_string());
+                        if stream.stream_type().contains(gst::StreamType::AUDIO) {
+                            audio = id;
+                        } else if stream.stream_type().contains(gst::StreamType::TEXT) {
+                            text = id;
+                        }
+                    }
+                    self.audio_stream.replace(audio);
+                    self.text_stream.replace(text);
+                    self.update_tracks_menu();
+                }
                 gst::MessageView::Element(_) => {
                     if let Ok(missing) = gst_pbutils::MissingPluginMessage::parse(message) {
                         self.missing_codec
@@ -810,6 +1101,14 @@ impl LpVideoPlayer {
             .property("video-sink", &video_sink)
             .build()?;
 
+        // Subtitles with the same name as the video
+        if let Some(subtitle) = sidecar_subtitle(file) {
+            playbin.set_property("suburi", subtitle.uri().as_str());
+            imp.subtitle_file.replace(Some(subtitle));
+            imp.select_new_subtitle.set(true);
+        }
+        imp.apply_subtitle_size("medium");
+
         // Keep the pitch when playing faster or slower
         if let Ok(scaletempo) = gst::ElementFactory::make("scaletempo").build() {
             playbin.set_property("audio-filter", &scaletempo);
@@ -972,6 +1271,52 @@ impl LpVideoPlayer {
 
     pub fn toggle_playing(&self) {
         self.set_playing(!self.is_playing());
+    }
+
+    /// Lets the user pick a subtitle file
+    async fn choose_subtitles(&self) {
+        let filter = gtk::FileFilter::new();
+        filter.set_name(Some(&gettext("Subtitles")));
+        for extension in SUBTITLE_EXTENSIONS {
+            filter.add_suffix(extension);
+        }
+        let filters = gio::ListStore::new::<gtk::FileFilter>();
+        filters.append(&filter);
+        let dialog = gtk::FileDialog::builder()
+            .title(gettext("Open Subtitles"))
+            .filters(&filters)
+            .modal(true)
+            .build();
+        if let Some(folder) = self.file().and_then(|f| f.parent()) {
+            dialog.set_initial_folder(Some(&folder));
+        }
+        let window = self.imp().picture.root().and_downcast::<gtk::Window>();
+        if let Ok(file) = dialog.open_future(window.as_ref()).await {
+            self.load_subtitles(&file);
+        }
+    }
+
+    /// Opens the online subtitle search for this video
+    fn search_subtitles(&self) {
+        if let Some(file) = self.file() {
+            crate::widgets::subtitle_search::present(self, &file);
+        }
+    }
+
+    /// Shows the subtitles in `file`, picking up where the video was
+    pub fn load_subtitles(&self, file: &gio::File) {
+        let imp = self.imp();
+        let Some(playbin) = imp.playbin.get() else {
+            return;
+        };
+        let position = imp.position().unwrap_or(gst::ClockTime::ZERO);
+        imp.restore.set(Some((position, self.is_playing())));
+        imp.playing.set(false);
+        let _ = playbin.set_state(gst::State::Ready);
+        playbin.set_property("suburi", file.uri().as_str());
+        imp.subtitle_file.replace(Some(file.clone()));
+        imp.select_new_subtitle.set(true);
+        let _ = playbin.set_state(gst::State::Paused);
     }
 
     pub fn toggle_mute(&self) {
@@ -1147,11 +1492,21 @@ fn grab_frame(
     position: Option<gst::ClockTime>,
     width: u32,
 ) -> anyhow::Result<(Vec<u8>, i32, i32, usize)> {
-    let fakesink = || gst::ElementFactory::make("fakesink").build();
+    // Scaled to RGBA before the sink, so the last sample is ready to use
+    let video_sink = gst::parse::bin_from_description(
+        &format!(
+            "videoconvert ! videoscale ! video/x-raw,format=RGBA,width={width},pixel-aspect-ratio=1/1 \
+             ! fakesink name=sink enable-last-sample=true"
+        ),
+        true,
+    )?;
+    let sink = video_sink
+        .by_name("sink")
+        .ok_or_else(|| anyhow::anyhow!("No sink"))?;
     let playbin = gst::ElementFactory::make("playbin3")
         .property("uri", uri)
-        .property("audio-sink", fakesink()?)
-        .property("video-sink", fakesink()?)
+        .property("audio-sink", gst::ElementFactory::make("fakesink").build()?)
+        .property("video-sink", &video_sink)
         .build()?;
 
     let result = (|| {
@@ -1171,13 +1526,8 @@ fn grab_frame(
             state?;
         }
 
-        let caps = gst::Caps::builder("video/x-raw")
-            .field("format", "RGBA")
-            .field("width", width as i32)
-            .field("pixel-aspect-ratio", gst::Fraction::new(1, 1))
-            .build();
-        let sample = playbin
-            .emit_by_name::<Option<gst::Sample>>("convert-sample", &[&caps])
+        let sample = sink
+            .property::<Option<gst::Sample>>("last-sample")
             .ok_or_else(|| anyhow::anyhow!("No frame"))?;
         let info = gst_video::VideoInfo::from_caps(
             sample.caps().ok_or_else(|| anyhow::anyhow!("No caps"))?,
@@ -1236,6 +1586,77 @@ pub fn video_info(uri: &str) -> Option<VideoInfo> {
         result.audio_codec = description(audio.caps());
     }
     Some(result)
+}
+
+/// Title or language of a track, or its number
+fn stream_label(stream: &gst::Stream, number: usize) -> String {
+    let tags = stream.tags();
+    let title = tags
+        .as_ref()
+        .and_then(|tags| tags.get::<gst::tags::Title>())
+        .map(|title| title.get().to_string());
+    let language = tags
+        .as_ref()
+        .and_then(|tags| tags.get::<gst::tags::LanguageCode>())
+        .map(|code| {
+            let code = code.get().to_string();
+            gst_tag::language_codes::language_name(&code)
+                .map(|name| name.to_string())
+                .unwrap_or(code)
+        });
+    match (title, language) {
+        (Some(title), Some(language)) if title != language => format!("{title} ({language})"),
+        (Some(title), _) => title,
+        (None, Some(language)) => language,
+        // Translators: A subtitle or audio track without a name, {} is its number
+        (None, None) => gettext_f("Track {}", [number.to_string()]),
+    }
+}
+
+/// A subtitle file named like the video: `movie.srt`, or `movie.en.srt`
+/// preferring the user's language
+pub fn sidecar_subtitle(video: &gio::File) -> Option<gio::File> {
+    let path = video.path()?;
+    let stem = path.file_stem()?.to_str()?.to_string();
+    let dir = path.parent()?;
+
+    for extension in SUBTITLE_EXTENSIONS {
+        let exact = dir.join(format!("{stem}.{extension}"));
+        if exact.is_file() {
+            return Some(gio::File::for_path(exact));
+        }
+    }
+
+    let language = user_language();
+    let mut fallback = None;
+    for entry in std::fs::read_dir(dir).ok()?.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let Some(rest) = name.strip_prefix(&format!("{stem}.")) else {
+            continue;
+        };
+        let Some((lang, extension)) = rest.rsplit_once('.') else {
+            continue;
+        };
+        if !SUBTITLE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) {
+            continue;
+        }
+        if lang.eq_ignore_ascii_case(&language) {
+            return Some(gio::File::for_path(entry.path()));
+        }
+        fallback.get_or_insert_with(|| gio::File::for_path(entry.path()));
+    }
+    fallback
+}
+
+/// Two letter code of the user's language, like `en`
+pub fn user_language() -> String {
+    glib::language_names()
+        .iter()
+        .map(|name| name.to_string())
+        .find(|name| name != "C" && name != "POSIX")
+        .and_then(|name| name.split(['_', '.', '@']).next().map(|x| x.to_string()))
+        .filter(|code| code.len() == 2)
+        .unwrap_or_else(|| "en".to_string())
 }
 
 /// Volume of all videos, from 0 to 1
