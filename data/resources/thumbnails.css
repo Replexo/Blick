@@ -75,18 +75,12 @@ lpthumbnailstrip.compact .current .thumbnail {
   border: 1px solid rgb(255 255 255 / 0.08);
   color: white;
   border-radius: 12px;
-  padding: 8px 12px;
+  padding: 2px 6px;
 }
 
-.video-controls button.video-play {
-  min-width: 44px;
-  min-height: 44px;
-  background-color: white;
-  color: black;
-}
-
-.video-controls button.video-play:hover {
-  background-color: rgb(255 255 255 / 0.85);
+/* Settings and sound in the top right corner */
+.video-controls.video-corner {
+  padding: 2px;
 }
 
 /* Frame preview over the seek bar, frosted like the controls */
