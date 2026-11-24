@@ -511,7 +511,12 @@ impl LpImageView {
 
         imp.folder_strip.set_files(if show { &files } else { &[] });
         imp.folder_strip.set_current(self.current_file().as_ref());
+        let was_shown = imp.folder_strip.is_visible();
         imp.folder_strip.set_visible(show);
+        // The folder loads after the first photo, so the strip shows then
+        if show && !was_shown {
+            self.show_folder_strip();
+        }
         // The strips replace the previous and next buttons, and a lone
         // image has nothing to move to
         imp.controls_box_start.set_visible(false);

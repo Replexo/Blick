@@ -76,6 +76,8 @@ mod imp {
         /// Settings and sound in the top right corner
         pub(super) corner: gtk::Revealer,
         pub(super) sound_button: gtk::MenuButton,
+        /// Pointer movement anywhere on the page, also over a paused frame
+        pub(super) page_motion: RefCell<Option<gtk::EventControllerMotion>>,
         pub(super) play_button: gtk::Button,
         pub(super) position_label: gtk::Label,
         pub(super) duration_label: gtk::Label,
@@ -125,7 +127,7 @@ mod imp {
         /// Position and playing state to restore after reloading
         pub(super) restore: Cell<Option<(gst::ClockTime, bool)>>,
         pub(super) tracks_popover: RefCell<Option<gtk::PopoverMenu>>,
-        /// Size and delay rows in the tracks menu, with their ids
+        /// The delay row in the settings menu, with its id
         pub(super) custom_rows: RefCell<Vec<(gtk::Widget, &'static str)>>,
         pub(super) delay_label: gtk::Label,
     }
@@ -404,13 +406,9 @@ mod imp {
                 }
             }
 
-            // Moving the pointer shows the controls; they hide after a while
-            // without moving it while playing
-            for widget in [
-                self.picture.upcast_ref::<gtk::Widget>(),
-                self.controls.upcast_ref(),
-                self.corner.upcast_ref(),
-            ] {
+            // Moving the pointer shows the controls and they hide after a
+            // while without moving it; these tell if the pointer is on them
+            for widget in [&self.controls, &self.corner] {
                 let motion = gtk::EventControllerMotion::new();
                 motion.connect_motion(clone!(
                     #[weak]
@@ -494,7 +492,9 @@ mod imp {
                 && let Some(point) =
                     self.seek.compute_point(&overlay, &graphene::Point::new(x as f32, 0.))
             {
+                // The measured width includes the margin set last time
                 let (_, width, _, _) = self.preview.measure(gtk::Orientation::Horizontal, -1);
+                let width = width - self.preview.margin_start() - self.preview.margin_end();
                 let max = (overlay.width() - width - 8).max(8);
                 let start = (point.x() as i32 - width / 2).clamp(8, max);
                 self.preview.set_margin_start(start);
@@ -544,7 +544,7 @@ mod imp {
             ));
         }
 
-        /// Button with subtitles, audio tracks, subtitle size and delay
+        /// Settings button: subtitles, audio tracks, speed and looping
         fn build_tracks_button(&self) -> gtk::MenuButton {
             let obj = self.obj();
 
@@ -620,7 +620,7 @@ mod imp {
             let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             delay_box.set_margin_start(12);
             delay_box.set_margin_end(12);
-            let delay_title = gtk::Label::new(Some(&gettext("Subtitle Delay")));
+            let delay_title = gtk::Label::new(Some(&gettext("Delay")));
             delay_title.set_hexpand(true);
             delay_title.set_xalign(0.);
             self.delay_label.add_css_class("numeric");
@@ -649,45 +649,11 @@ mod imp {
             delay_box.append(&later);
             self.update_delay_label(0);
 
-            // Subtitle size as one segmented control
-            let size_group = adw::ToggleGroup::new();
-            for (name, label) in [
-                ("small", gettext("Small")),
-                ("medium", gettext("Medium")),
-                ("large", gettext("Large")),
-            ] {
-                let toggle = adw::Toggle::new();
-                toggle.set_name(Some(name));
-                toggle.set_label(Some(&label));
-                size_group.add(toggle);
-            }
-            size_group.set_active_name(Some("medium"));
-            size_group.connect_active_name_notify(clone!(
-                #[weak]
-                obj,
-                move |group| {
-                    if let Some(name) = group.active_name() {
-                        obj.imp().apply_subtitle_size(&name);
-                    }
-                }
-            ));
-            let size_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-            size_box.set_margin_start(12);
-            size_box.set_margin_end(12);
-            let size_title = gtk::Label::new(Some(&gettext("Subtitle Size")));
-            size_title.set_hexpand(true);
-            size_title.set_xalign(0.);
-            size_box.append(&size_title);
-            size_box.append(&size_group);
 
             let popover = gtk::PopoverMenu::from_model(None::<&gio::MenuModel>);
-            popover.add_child(&size_box, "size");
             popover.add_child(&delay_box, "delay");
             self.tracks_popover.replace(Some(popover.clone()));
-            self.custom_rows.replace(vec![
-                (size_box.upcast(), "size"),
-                (delay_box.upcast(), "delay"),
-            ]);
+            self.custom_rows.replace(vec![(delay_box.upcast(), "delay")]);
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-settings-symbolic");
             button.set_popover(Some(&popover));
@@ -715,15 +681,33 @@ mod imp {
             // A new model each time; changing the old one keeps stale submenus
             let menu = gio::Menu::new();
 
-            let subtitles = gio::Menu::new();
-            subtitles.append(Some(&gettext("Off")), Some("video.subtitle::"));
+            let tracks = gio::Menu::new();
+            tracks.append(Some(&gettext("Off")), Some("video.subtitle::"));
             for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
                 let item = gio::MenuItem::new(Some(&label), None);
                 item.set_action_and_target_value(Some("video.subtitle"), Some(&id.to_variant()));
-                subtitles.append_item(&item);
+                tracks.append_item(&item);
             }
-            subtitles.append(Some(&gettext("_Open Subtitles…")), Some("video.open-subtitles"));
-            menu.append_section(Some(&gettext("Subtitles")), &subtitles);
+            tracks.append(Some(&gettext("_Open Subtitles…")), Some("video.open-subtitles"));
+            let sizes = gio::Menu::new();
+            for (name, label) in [
+                ("small", gettext("Small")),
+                ("medium", gettext("Medium")),
+                ("large", gettext("Large")),
+            ] {
+                let item = gio::MenuItem::new(Some(&label), None);
+                item.set_action_and_target_value(Some("video.subtitle-size"), Some(&name.to_variant()));
+                sizes.append_item(&item);
+            }
+            let delay = gio::Menu::new();
+            let item = gio::MenuItem::new(None, None);
+            item.set_attribute_value("custom", Some(&"delay".to_variant()));
+            delay.append_item(&item);
+            let subtitles = gio::Menu::new();
+            subtitles.append_section(None, &tracks);
+            subtitles.append_section(Some(&gettext("Size")), &sizes);
+            subtitles.append_section(None, &delay);
+            menu.append_submenu(Some(&gettext("Subtitles")), &subtitles);
 
             let audio_tracks = self.stream_ids(gst::StreamType::AUDIO);
             if audio_tracks.len() > 1 {
@@ -733,26 +717,15 @@ mod imp {
                     item.set_action_and_target_value(Some("video.audio"), Some(&id.to_variant()));
                     audio.append_item(&item);
                 }
-                menu.append_section(Some(&gettext("Audio")), &audio);
+                menu.append_submenu(Some(&gettext("Audio")), &audio);
             }
-
-            // Size and delay rows
-            let rows = gio::Menu::new();
-            for custom in ["size", "delay"] {
-                let item = gio::MenuItem::new(None, None);
-                item.set_attribute_value("custom", Some(&custom.to_variant()));
-                rows.append_item(&item);
-            }
-            menu.append_section(None, &rows);
 
             let speed = gio::Menu::new();
             for rate in SPEEDS {
                 speed.append(Some(&speed_label(rate)), Some(&format!("video.speed::{}", rate)));
             }
-            let playback = gio::Menu::new();
-            playback.append_submenu(Some(&gettext("Speed")), &speed);
-            playback.append(Some(&gettext("Loop")), Some("video.loop"));
-            menu.append_section(None, &playback);
+            menu.append_submenu(Some(&gettext("Speed")), &speed);
+            menu.append(Some(&gettext("Loop")), Some("video.loop"));
             // A new model drops the custom rows, so they come back each time
             if let Some(popover) = self.tracks_popover.borrow().as_ref() {
                 popover.set_menu_model(Some(&menu));
@@ -938,9 +911,6 @@ mod imp {
             if let Some(source) = self.hide_timeout.take() {
                 source.remove();
             }
-            if !self.playing.get() {
-                return;
-            }
             let source = glib::timeout_add_local_once(
                 HIDE_DELAY,
                 clone!(
@@ -963,10 +933,12 @@ mod imp {
                                 .borrow()
                                 .as_ref()
                                 .is_some_and(|b| b.is_active());
-                        if imp.playing.get() && !over_controls && !menu_open {
+                        if !over_controls && !menu_open {
                             imp.controls.set_reveal_child(false);
                             imp.corner.set_reveal_child(false);
-                            imp.picture.set_cursor_from_name(Some("none"));
+                            if imp.playing.get() {
+                                imp.picture.set_cursor_from_name(Some("none"));
+                            }
                         }
                     }
                 ),
@@ -1228,6 +1200,20 @@ impl LpVideoPlayer {
         imp.overlay.set(Some(overlay));
         overlay.set_measure_overlay(&imp.picture, false);
 
+        let motion = gtk::EventControllerMotion::new();
+        motion.set_propagation_phase(gtk::PropagationPhase::Capture);
+        motion.connect_motion(clone!(
+            #[weak]
+            obj,
+            move |_, _, _| {
+                if obj.is_active() {
+                    obj.imp().show_controls();
+                }
+            }
+        ));
+        overlay.add_controller(motion.clone());
+        imp.page_motion.replace(Some(motion));
+
         if let Err(err) = obj.build_pipeline(file) {
             let description = gettext(
                 "Video playback is not available. The GStreamer “playbin3” and “gtk4paintablesink” elements are needed.",
@@ -1329,6 +1315,9 @@ impl LpVideoPlayer {
         overlay.remove_overlay(&imp.controls);
         overlay.remove_overlay(&imp.corner);
         overlay.remove_overlay(&imp.preview);
+        if let Some(motion) = imp.page_motion.take() {
+            overlay.remove_controller(&motion);
+        }
     }
 
     pub fn is_active(&self) -> bool {
