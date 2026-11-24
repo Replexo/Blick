@@ -78,6 +78,13 @@ mod imp {
         pub(super) sound_button: gtk::MenuButton,
         /// Pointer movement anywhere on the page, also over a paused frame
         pub(super) page_motion: RefCell<Option<gtk::EventControllerMotion>>,
+        /// Where the pointer was, as GTK also reports motion when only the
+        /// widgets under it change
+        pub(super) last_pointer: Cell<Option<(f64, f64)>>,
+        /// The controls fade by their opacity, so the frosted glass behind
+        /// them fades too
+        pub(super) controls_shown: Cell<bool>,
+        pub(super) fades: RefCell<Vec<adw::TimedAnimation>>,
         pub(super) play_button: gtk::Button,
         pub(super) position_label: gtk::Label,
         pub(super) duration_label: gtk::Label,
@@ -126,9 +133,9 @@ mod imp {
         pub(super) select_new_subtitle: Cell<bool>,
         /// Position and playing state to restore after reloading
         pub(super) restore: Cell<Option<(gst::ClockTime, bool)>>,
-        pub(super) tracks_popover: RefCell<Option<gtk::PopoverMenu>>,
-        /// The delay row in the settings menu, with its id
-        pub(super) custom_rows: RefCell<Vec<(gtk::Widget, &'static str)>>,
+        /// Pages of the settings menu
+        pub(super) settings_stack: gtk::Stack,
+        pub(super) delay_row: RefCell<Option<gtk::Box>>,
         pub(super) delay_label: gtk::Label,
     }
 
@@ -342,7 +349,7 @@ mod imp {
 
             self.controls.set_child(Some(&clamp));
             self.controls
-                .set_transition_type(gtk::RevealerTransitionType::Crossfade);
+                .set_transition_type(gtk::RevealerTransitionType::None);
             self.controls.set_valign(gtk::Align::End);
             self.controls.set_reveal_child(true);
             self.controls.set_can_focus(false);
@@ -360,11 +367,27 @@ mod imp {
 
             self.corner.set_child(Some(&corner));
             self.corner
-                .set_transition_type(gtk::RevealerTransitionType::Crossfade);
+                .set_transition_type(gtk::RevealerTransitionType::None);
             self.corner.set_halign(gtk::Align::End);
             self.corner.set_valign(gtk::Align::Start);
             self.corner.set_reveal_child(true);
             self.corner.set_can_focus(false);
+            self.controls_shown.set(true);
+            for revealer in [&self.controls, &self.corner] {
+                let target = adw::PropertyAnimationTarget::new(revealer, "opacity");
+                let fade = adw::TimedAnimation::new(revealer, 1., 1., 200, target);
+                // The frosted glass redraws on layout, which a fade doesn't do
+                fade.connect_value_notify(clone!(
+                    #[weak]
+                    obj,
+                    move |_| {
+                        if let Some(frost) = obj.imp().frost.borrow().as_ref() {
+                            frost.queue_draw();
+                        }
+                    }
+                ));
+                self.fades.borrow_mut().push(fade);
+            }
 
             // Menus look like the cards and open below the corner, not over it
             for button in [&settings, &self.sound_button] {
@@ -406,16 +429,10 @@ mod imp {
                 }
             }
 
-            // Moving the pointer shows the controls and they hide after a
-            // while without moving it; these tell if the pointer is on them
+            // Moving the pointer on the page shows the controls, see `new()`;
+            // these tell if the pointer rests on them
             for widget in [&self.controls, &self.corner] {
-                let motion = gtk::EventControllerMotion::new();
-                motion.connect_motion(clone!(
-                    #[weak]
-                    obj,
-                    move |_, _, _| obj.imp().show_controls()
-                ));
-                widget.add_controller(motion);
+                widget.add_controller(gtk::EventControllerMotion::new());
             }
 
             // Click plays and pauses, a double click toggles fullscreen and
@@ -617,14 +634,13 @@ mod imp {
             self.actions.add_action(&open);
 
             // Subtitle delay, in steps of 0.1 s
-            let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-            delay_box.set_margin_start(12);
-            delay_box.set_margin_end(12);
+            let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+            delay_box.add_css_class("video-menu-item");
             let delay_title = gtk::Label::new(Some(&gettext("Delay")));
             delay_title.set_hexpand(true);
             delay_title.set_xalign(0.);
             self.delay_label.add_css_class("numeric");
-            self.delay_label.set_width_chars(7);
+            self.delay_label.set_width_chars(6);
             let earlier = gtk::Button::from_icon_name("minus-large-symbolic");
             earlier.update_property(&[gtk::accessible::Property::Label(&gettext("Show Subtitles Earlier"))]);
             let later = gtk::Button::from_icon_name("plus-large-symbolic");
@@ -632,6 +648,7 @@ mod imp {
             for button in [&earlier, &later] {
                 button.add_css_class("flat");
                 button.add_css_class("circular");
+                button.add_css_class("video-menu-small");
             }
             earlier.connect_clicked(clone!(
                 #[weak]
@@ -648,18 +665,199 @@ mod imp {
             delay_box.append(&self.delay_label);
             delay_box.append(&later);
             self.update_delay_label(0);
+            self.delay_row.replace(Some(delay_box));
 
-
-            let popover = gtk::PopoverMenu::from_model(None::<&gio::MenuModel>);
-            popover.add_child(&delay_box, "delay");
-            self.tracks_popover.replace(Some(popover.clone()));
-            self.custom_rows.replace(vec![(delay_box.upcast(), "delay")]);
+            // A small menu of our own: GTK's menus are large and put the
+            // submenu arrows on the far side
+            self.settings_stack
+                .set_transition_type(gtk::StackTransitionType::SlideLeftRight);
+            self.settings_stack.set_transition_duration(150);
+            self.settings_stack.set_vhomogeneous(false);
+            self.settings_stack.set_hhomogeneous(false);
+            self.settings_stack.set_interpolate_size(true);
+            let popover = gtk::Popover::new();
+            popover.set_child(Some(&self.settings_stack));
+            popover.connect_show(clone!(
+                #[weak]
+                obj,
+                move |_| {
+                    let imp = obj.imp();
+                    imp.fill_settings();
+                    imp.settings_stack
+                        .set_visible_child_full("main", gtk::StackTransitionType::None);
+                }
+            ));
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-settings-symbolic");
             button.set_popover(Some(&popover));
             button.update_property(&[gtk::accessible::Property::Label(&gettext("Settings"))]);
-            self.update_tracks_menu();
             button
+        }
+
+        /// Rebuilds the settings menu's pages with the current choices
+        fn fill_settings(&self) {
+            let obj = self.obj();
+            let stack = &self.settings_stack;
+            while let Some(child) = stack.first_child() {
+                stack.remove(&child);
+            }
+            if let Some(delay) = self.delay_row.borrow().as_ref()
+                && let Some(parent) = delay.parent().and_downcast::<gtk::Box>()
+            {
+                parent.remove(delay);
+            }
+
+            let state = |name: &str| {
+                self.actions
+                    .lookup_action(name)
+                    .and_then(|action| action.state())
+                    .and_then(|state| state.get::<String>())
+                    .unwrap_or_default()
+            };
+            let popdown = clone!(
+                #[weak]
+                stack,
+                move || {
+                    if let Some(popover) = stack.ancestor(gtk::Popover::static_type()) {
+                        popover.downcast::<gtk::Popover>().unwrap().popdown();
+                    }
+                }
+            );
+            // A row that picks `target` for `action` and closes the menu
+            let choice = |label: &str, action: &'static str, target: String, chosen: bool| {
+                let row = menu_row(label, chosen.then_some("check-plain-symbolic"), None);
+                row.connect_clicked(clone!(
+                    #[weak]
+                    obj,
+                    #[strong]
+                    popdown,
+                    move |_| {
+                        obj.imp().actions.activate_action(action, Some(&target.to_variant()));
+                        popdown();
+                    }
+                ));
+                row
+            };
+            let open_page = |label: &str, page: &'static str| {
+                let row = menu_row(label, Some("glance-left-symbolic"), None);
+                row.connect_clicked(clone!(
+                    #[weak]
+                    stack,
+                    move |_| stack.set_visible_child_name(page)
+                ));
+                row
+            };
+            let new_page = |title: &str, name: &str| {
+                let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                let back = menu_row(title, None, Some("glance-right-symbolic"));
+                back.add_css_class("heading");
+                back.connect_clicked(clone!(
+                    #[weak]
+                    stack,
+                    move |_| stack.set_visible_child_name("main")
+                ));
+                page.append(&back);
+                page.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+                stack.add_named(&page, Some(name));
+                page
+            };
+
+            let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            main.append(&open_page(&gettext("Subtitles"), "subtitles"));
+            let audio_tracks = self.stream_ids(gst::StreamType::AUDIO);
+            if audio_tracks.len() > 1 {
+                main.append(&open_page(&gettext("Audio"), "audio"));
+            }
+            main.append(&open_page(&gettext("Speed"), "speed"));
+            let looping = menu_row(
+                &gettext("Loop"),
+                self.looping.get().then_some("check-plain-symbolic"),
+                None,
+            );
+            looping.connect_clicked(clone!(
+                #[weak]
+                obj,
+                #[strong]
+                popdown,
+                move |_| {
+                    obj.imp().actions.activate_action("loop", None);
+                    popdown();
+                }
+            ));
+            main.append(&looping);
+            stack.add_named(&main, Some("main"));
+
+            // Subtitles: tracks, a file, size and delay
+            let page = new_page(&gettext("Subtitles"), "subtitles");
+            let current = state("subtitle");
+            page.append(&choice(&gettext("Off"), "subtitle", String::new(), current.is_empty()));
+            for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
+                let chosen = id == current;
+                page.append(&choice(&label, "subtitle", id, chosen));
+            }
+            let open = menu_row(&gettext("Open Subtitles…"), None, None);
+            open.connect_clicked(clone!(
+                #[weak]
+                obj,
+                #[strong]
+                popdown,
+                move |_| {
+                    popdown();
+                    obj.imp().actions.activate_action("open-subtitles", None);
+                }
+            ));
+            page.append(&open);
+            page.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+            let size_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+            size_row.add_css_class("video-menu-item");
+            let size_title = gtk::Label::new(Some(&gettext("Size")));
+            size_title.set_hexpand(true);
+            size_title.set_xalign(0.);
+            size_row.append(&size_title);
+            let sizes = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            sizes.add_css_class("linked");
+            let current = state("subtitle-size");
+            let mut group: Option<gtk::ToggleButton> = None;
+            // Translators: Small, medium and large subtitles
+            for (name, label) in [("small", gettext("S")), ("medium", gettext("M")), ("large", gettext("L"))] {
+                let toggle = gtk::ToggleButton::with_label(&label);
+                toggle.add_css_class("video-menu-small");
+                toggle.set_group(group.as_ref());
+                toggle.set_active(name == current);
+                toggle.connect_toggled(clone!(
+                    #[weak]
+                    obj,
+                    move |toggle| {
+                        if toggle.is_active() {
+                            obj.imp().actions.activate_action("subtitle-size", Some(&name.to_variant()));
+                        }
+                    }
+                ));
+                sizes.append(&toggle);
+                group.get_or_insert(toggle);
+            }
+            size_row.append(&sizes);
+            page.append(&size_row);
+            if let Some(delay) = self.delay_row.borrow().as_ref() {
+                page.append(delay);
+            }
+
+            if audio_tracks.len() > 1 {
+                let page = new_page(&gettext("Audio"), "audio");
+                let current = state("audio");
+                for (id, label) in audio_tracks {
+                    let chosen = id == current;
+                    page.append(&choice(&label, "audio", id, chosen));
+                }
+            }
+
+            let page = new_page(&gettext("Speed"), "speed");
+            let current = state("speed").parse::<f64>().unwrap_or(1.);
+            for rate in SPEEDS {
+                let chosen = (rate - current).abs() < 0.01;
+                page.append(&choice(&speed_label(rate), "speed", rate.to_string(), chosen));
+            }
         }
 
         /// Stream ids of `stream_type` with a readable name each
@@ -677,67 +875,8 @@ mod imp {
                 .collect()
         }
 
+        /// Shows the chosen tracks, also in an open settings menu
         pub(super) fn update_tracks_menu(&self) {
-            // A new model each time; changing the old one keeps stale submenus
-            let menu = gio::Menu::new();
-
-            let tracks = gio::Menu::new();
-            tracks.append(Some(&gettext("Off")), Some("video.subtitle::"));
-            for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
-                let item = gio::MenuItem::new(Some(&label), None);
-                item.set_action_and_target_value(Some("video.subtitle"), Some(&id.to_variant()));
-                tracks.append_item(&item);
-            }
-            tracks.append(Some(&gettext("_Open Subtitles…")), Some("video.open-subtitles"));
-            let sizes = gio::Menu::new();
-            for (name, label) in [
-                ("small", gettext("Small")),
-                ("medium", gettext("Medium")),
-                ("large", gettext("Large")),
-            ] {
-                let item = gio::MenuItem::new(Some(&label), None);
-                item.set_action_and_target_value(Some("video.subtitle-size"), Some(&name.to_variant()));
-                sizes.append_item(&item);
-            }
-            let delay = gio::Menu::new();
-            let item = gio::MenuItem::new(None, None);
-            item.set_attribute_value("custom", Some(&"delay".to_variant()));
-            delay.append_item(&item);
-            let subtitles = gio::Menu::new();
-            subtitles.append_section(None, &tracks);
-            subtitles.append_section(Some(&gettext("Size")), &sizes);
-            subtitles.append_section(None, &delay);
-            menu.append_submenu(Some(&gettext("Subtitles")), &subtitles);
-
-            let audio_tracks = self.stream_ids(gst::StreamType::AUDIO);
-            if audio_tracks.len() > 1 {
-                let audio = gio::Menu::new();
-                for (id, label) in audio_tracks {
-                    let item = gio::MenuItem::new(Some(&label), None);
-                    item.set_action_and_target_value(Some("video.audio"), Some(&id.to_variant()));
-                    audio.append_item(&item);
-                }
-                menu.append_submenu(Some(&gettext("Audio")), &audio);
-            }
-
-            let speed = gio::Menu::new();
-            for rate in SPEEDS {
-                speed.append(Some(&speed_label(rate)), Some(&format!("video.speed::{}", rate)));
-            }
-            menu.append_submenu(Some(&gettext("Speed")), &speed);
-            menu.append(Some(&gettext("Loop")), Some("video.loop"));
-            // A new model drops the custom rows, so they come back each time
-            if let Some(popover) = self.tracks_popover.borrow().as_ref() {
-                popover.set_menu_model(Some(&menu));
-                for (widget, id) in self.custom_rows.borrow().iter() {
-                    if widget.parent().is_some() {
-                        popover.remove_child(widget);
-                    }
-                    popover.add_child(widget, id);
-                }
-            }
-
-            // Show the chosen tracks
             if let Some(action) = self.actions.lookup_action("subtitle") {
                 let id = self.text_stream.borrow().clone().unwrap_or_default();
                 action.change_state(&id.to_variant());
@@ -745,6 +884,14 @@ mod imp {
             if let Some(action) = self.actions.lookup_action("audio") {
                 let id = self.audio_stream.borrow().clone().unwrap_or_default();
                 action.change_state(&id.to_variant());
+            }
+            if self.settings_stack.is_mapped() {
+                let page = self.settings_stack.visible_child_name();
+                self.fill_settings();
+                if let Some(page) = page {
+                    self.settings_stack
+                        .set_visible_child_full(&page, gtk::StackTransitionType::None);
+                }
             }
         }
 
@@ -858,7 +1005,7 @@ mod imp {
             } else if n_press == 1 {
                 if touch {
                     // A tap shows the controls first
-                    if !self.controls.reveals_child() {
+                    if !self.controls_shown.get() {
                         self.show_controls();
                         return;
                     }
@@ -883,8 +1030,7 @@ mod imp {
         }
 
         pub(super) fn show_controls(&self) {
-            self.controls.set_reveal_child(true);
-            self.corner.set_reveal_child(true);
+            self.fade_controls(true);
             let fullscreen = self
                 .picture
                 .root()
@@ -904,6 +1050,21 @@ mod imp {
             }
             self.picture.set_cursor(None);
             self.schedule_hide();
+        }
+
+        fn fade_controls(&self, shown: bool) {
+            if self.controls_shown.replace(shown) == shown {
+                return;
+            }
+            self.controls.set_can_target(shown);
+            self.corner.set_can_target(shown);
+            let to = if shown { 1. } else { 0. };
+            for fade in self.fades.borrow().iter() {
+                let from = fade.widget().opacity();
+                fade.set_value_from(from);
+                fade.set_value_to(to);
+                fade.play();
+            }
         }
 
         pub(super) fn schedule_hide(&self) {
@@ -934,8 +1095,7 @@ mod imp {
                                 .as_ref()
                                 .is_some_and(|b| b.is_active());
                         if !over_controls && !menu_open {
-                            imp.controls.set_reveal_child(false);
-                            imp.corner.set_reveal_child(false);
+                            imp.fade_controls(false);
                             if imp.playing.get() {
                                 imp.picture.set_cursor_from_name(Some("none"));
                             }
@@ -1205,9 +1365,14 @@ impl LpVideoPlayer {
         motion.connect_motion(clone!(
             #[weak]
             obj,
-            move |_, _, _| {
-                if obj.is_active() {
-                    obj.imp().show_controls();
+            move |_, x, y| {
+                let imp = obj.imp();
+                let moved = imp
+                    .last_pointer
+                    .replace(Some((x, y)))
+                    .is_none_or(|(old_x, old_y)| (old_x - x).abs() + (old_y - y).abs() > 1.);
+                if moved && obj.is_active() {
+                    imp.show_controls();
                 }
             }
         ));
@@ -1921,6 +2086,28 @@ fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
 }
 
+/// A row of the video menus: an icon at the start, the label and an icon
+/// at the end
+fn menu_row(label: &str, start: Option<&str>, end: Option<&str>) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let icon = gtk::Image::new();
+    icon.set_pixel_size(16);
+    icon.set_icon_name(start);
+    content.append(&icon);
+    let text = gtk::Label::new(Some(label));
+    text.set_xalign(0.);
+    text.set_hexpand(true);
+    content.append(&text);
+    if let Some(end) = end {
+        content.append(&gtk::Image::from_icon_name(end));
+    }
+    let row = gtk::Button::new();
+    row.set_child(Some(&content));
+    row.add_css_class("flat");
+    row.add_css_class("video-menu-row");
+    row
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1932,3 +2119,4 @@ mod tests {
         assert_eq!(format_time(gst::ClockTime::from_seconds(3725)), "1:02:05");
     }
 }
+

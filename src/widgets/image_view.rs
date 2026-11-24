@@ -511,12 +511,7 @@ impl LpImageView {
 
         imp.folder_strip.set_files(if show { &files } else { &[] });
         imp.folder_strip.set_current(self.current_file().as_ref());
-        let was_shown = imp.folder_strip.is_visible();
         imp.folder_strip.set_visible(show);
-        // The folder loads after the first photo, so the strip shows then
-        if show && !was_shown {
-            self.show_folder_strip();
-        }
         // The strips replace the previous and next buttons, and a lone
         // image has nothing to move to
         imp.controls_box_start.set_visible(false);
@@ -796,6 +791,14 @@ impl LpImageView {
         let target = adw::PropertyAnimationTarget::new(&*imp.folder_strip, "opacity");
         let animation = adw::TimedAnimation::new(&*imp.folder_strip, 0., 1., 200, target);
         let _ = imp.strip_animation.set(animation);
+
+        // The folder loads after the first photo, so the strip shows when
+        // it appears
+        imp.folder_strip.connect_map(glib::clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_| obj.show_folder_strip()
+        ));
 
         let motion = gtk::EventControllerMotion::new();
         // Before the photo and its gestures see the pointer
