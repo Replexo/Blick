@@ -1,6 +1,6 @@
-data/io.github.Replexo.Blink.desktop.in.in
-data/io.github.Replexo.Blink.gschema.xml.in
-data/io.github.Replexo.Blink.metainfo.xml.in.in
+data/io.github.Replexo.Blick.desktop.in.in
+data/io.github.Replexo.Blick.gschema.xml.in
+data/io.github.Replexo.Blick.metainfo.xml.in.in
 data/resources/shortcuts-dialog.ui
 src/about.rs
 src/application.rs

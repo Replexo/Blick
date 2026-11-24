@@ -18,73 +18,73 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 "X-Generator: Poedit 3.4.2\n"
 
-#: data/io.github.Replexo.Blink.desktop.in.in:2
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:6
+#: data/io.github.Replexo.Blick.desktop.in.in:2
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:6
 #: src/widgets/image_window.rs:1008
 #, fuzzy
-msgid "Blink"
+msgid "Blick"
 msgstr "Annullér"
 
-#: data/io.github.Replexo.Blink.desktop.in.in:3
+#: data/io.github.Replexo.Blick.desktop.in.in:3
 msgid "Image Viewer"
 msgstr "Billedfremviser"
 
-#: data/io.github.Replexo.Blink.desktop.in.in:4
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:10
+#: data/io.github.Replexo.Blick.desktop.in.in:4
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:10
 msgid "View and edit images"
 msgstr "Se og redigér billeder"
 
-#: data/io.github.Replexo.Blink.desktop.in.in:12
+#: data/io.github.Replexo.Blick.desktop.in.in:12
 #, fuzzy
-msgid "Picture;Graphics;Loupe;Blink;"
+msgid "Picture;Graphics;Loupe;Blick;"
 msgstr "Billede;Grafik;Loupe;"
 
-#: data/io.github.Replexo.Blink.gschema.xml.in:6
+#: data/io.github.Replexo.Blick.gschema.xml.in:6
 msgid "Show the image properties sidebar"
 msgstr "Vis sidebjælken til billedegenskaber"
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:12
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:12
 msgid ""
-"Blink is an image viewer with built-in editing. Browse your images, view "
+"Blick is an image viewer with built-in editing. Browse your images, view "
 "their metadata, and make quick edits without opening a separate editor."
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:14
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:14
 msgid ""
 "Mark up images with a brush, highlighter, lines, arrows, shapes and text"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:15
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:15
 msgid "Adjust brightness, contrast, highlights, shadows and saturation"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:16
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:16
 msgid "Crop to an aspect ratio, rotate, flip and resize"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:17
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:17
 msgid "Undo and redo every edit, and save a copy or replace the original"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:19
-msgid "Blink is based on Loupe, the GNOME image viewer."
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:19
+msgid "Blick is based on Loupe, the GNOME image viewer."
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:28
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:28
 msgid "Marking up an image"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:32
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:32
 msgid "Adjusting colours"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:36
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:36
 msgid "Cropping"
 msgstr ""
 
-#: data/io.github.Replexo.Blink.metainfo.xml.in.in:76
+#: data/io.github.Replexo.Blick.metainfo.xml.in.in:76
 msgid ""
-"First release of Blink, based on Loupe 51.1. It adds Markup, Adjust and "
+"First release of Blick, based on Loupe 51.1. It adds Markup, Adjust and "
 "Crop editing views, undo and redo, zoom in the editor, and keyboard "
 "shortcuts for the markup tools."
 msgstr ""
@@ -367,11 +367,11 @@ msgstr ""
 "Mere info: http://www.dansk-gruppen.dk"
 
 #: src/application.rs:226
-msgid "Blink is now the default image viewer"
+msgid "Blick is now the default image viewer"
 msgstr ""
 
 #: src/application.rs:235
-msgid "Could not make Blink the default image viewer"
+msgid "Could not make Blick the default image viewer"
 msgstr ""
 
 #: src/file_model.rs:211
@@ -1059,7 +1059,7 @@ msgstr "_Tastaturgenveje"
 
 #: src/widgets/image_window.ui:82
 #, fuzzy
-msgid "_About Blink"
+msgid "_About Blick"
 msgstr "_Om loupe"
 
 #: src/widgets/image_window.ui:152
@@ -1408,7 +1408,7 @@ msgid "Close"
 msgstr ""
 
 #: src/widgets/update_dialog.rs:195
-msgid "Blink Is Up to Date"
+msgid "Blick Is Up to Date"
 msgstr ""
 
 #: src/widgets/update_dialog.rs:199
@@ -1430,7 +1430,7 @@ msgstr ""
 
 #: src/widgets/update_dialog.rs:220
 #, rust-format
-msgid "Blink {} Is Available"
+msgid "Blick {} Is Available"
 msgstr ""
 
 #: src/widgets/update_dialog.rs:224
@@ -1459,11 +1459,11 @@ msgid "The download failed."
 msgstr ""
 
 #: src/widgets/update_dialog.rs:283
-msgid "Restart Blink to use the new version."
+msgid "Restart Blick to use the new version."
 msgstr ""
 
 #: src/widgets/update_dialog.rs:284
-msgid "Restart Blink"
+msgid "Restart Blick"
 msgstr ""
 
 #: src/widgets/update_dialog.rs:306

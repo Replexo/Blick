@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/blink_<version>_<arch>.deb inside the deb image
+# Builds dist/blick_<version>_<arch>.deb inside the deb image
 set -eu
 cd /src
 version=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
@@ -11,7 +11,7 @@ meson compile -C /tmp/build
 DESTDIR="$root" meson install -C /tmp/build
 mkdir -p "$root/DEBIAN"
 cat > "$root/DEBIAN/control" <<CONTROL
-Package: blink
+Package: blick
 Breaks: glance-viewer, glance (<< 1.2)
 Replaces: glance-viewer, glance (<< 1.2)
 Version: $version
@@ -22,10 +22,10 @@ Recommends: gstreamer1.0-libav, gstreamer1.0-plugins-bad, gstreamer1.0-plugins-u
 Recommends: tesseract-ocr-spa, tesseract-ocr-fra, tesseract-ocr-deu, tesseract-ocr-por, tesseract-ocr-rus, tesseract-ocr-pol, tesseract-ocr-tur
 Section: graphics
 Priority: optional
-Homepage: https://github.com/Replexo/Blink
+Homepage: https://github.com/Replexo/Blick
 Description: View and edit images
- Blink is an image viewer based on GNOME Loupe that adds adjusting,
+ Blick is an image viewer based on GNOME Loupe that adds adjusting,
  markup, resizing and text recognition.
 CONTROL
 mkdir -p dist
-dpkg-deb --root-owner-group --build "$root" "dist/blink_${version}_${arch}.deb"
+dpkg-deb --root-owner-group --build "$root" "dist/blick_${version}_${arch}.deb"

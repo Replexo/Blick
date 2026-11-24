@@ -1,9 +1,9 @@
-Name:           blink
+Name:           blick
 Version:        %{app_version}
 Release:        1%{?dist}
 Summary:        View and edit images
 License:        GPL-3.0-or-later
-URL:            https://github.com/Replexo/Blink
+URL:            https://github.com/Replexo/Blick
 
 Obsoletes:      glance-viewer
 Obsoletes:      glance < 1.2
@@ -23,7 +23,7 @@ Recommends:     tesseract-langpack-por tesseract-langpack-rus tesseract-langpack
 Recommends:     tesseract-langpack-tur
 
 %description
-Blink is an image viewer based on GNOME Loupe that adds adjusting,
+Blick is an image viewer based on GNOME Loupe that adds adjusting,
 markup, resizing and text recognition.
 
 %build
@@ -32,13 +32,13 @@ meson compile -C %{_builddir}/build
 
 %install
 DESTDIR=%{buildroot} meson install -C %{_builddir}/build
-mkdir -p %{buildroot}%{_datadir}/licenses/blink
-install -Dm644 %{src}/COPYING.md %{buildroot}%{_datadir}/licenses/blink/COPYING.md
-%find_lang blink --with-gnome --all-name
+mkdir -p %{buildroot}%{_datadir}/licenses/blick
+install -Dm644 %{src}/COPYING.md %{buildroot}%{_datadir}/licenses/blick/COPYING.md
+%find_lang blick --with-gnome --all-name
 
-%files -f blink.lang
-%{_datadir}/licenses/blink/
-%{_bindir}/blink
+%files -f blick.lang
+%{_datadir}/licenses/blick/
+%{_bindir}/blick
 %{_datadir}/applications/*.desktop
 %{_datadir}/metainfo/*.xml
 %{_datadir}/icons/hicolor/*/apps/*
@@ -47,10 +47,10 @@ install -Dm644 %{src}/COPYING.md %{buildroot}%{_datadir}/licenses/blink/COPYING.
 
 %changelog
 * Thu Nov 12 2026 Replexo <196697396+Replexo@users.noreply.github.com> - 1.2-1
-- See https://github.com/Replexo/Blink/releases
+- See https://github.com/Replexo/Blick/releases
 
 * Tue Nov 10 2026 Replexo <196697396+Replexo@users.noreply.github.com> - 1.1-1
-- See https://github.com/Replexo/Blink/releases
+- See https://github.com/Replexo/Blick/releases
 
 * Tue Nov 10 2026 Replexo <196697396+Replexo@users.noreply.github.com> - 1.0-1
-- See https://github.com/Replexo/Blink/releases
+- See https://github.com/Replexo/Blick/releases

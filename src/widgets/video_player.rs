@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Blink contributors
+// Copyright (c) 2026 Blick contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -1675,7 +1675,7 @@ pub fn format_time(time: gst::ClockTime) -> String {
 
 /// Where paused frames are written for the image
 fn frame_path(file: Option<&gio::File>) -> PathBuf {
-    let dir = glib::user_cache_dir().join("blink").join("frames");
+    let dir = glib::user_cache_dir().join("blick").join("frames");
     let _ = std::fs::create_dir_all(&dir);
     let key = file.map(|f| f.uri().to_string()).unwrap_or_default();
     let hash = glib::compute_checksum_for_string(glib::ChecksumType::Sha1, &key)
@@ -1686,7 +1686,7 @@ fn frame_path(file: Option<&gio::File>) -> PathBuf {
 
 /// Remembered playback positions, one per video
 fn positions_path() -> PathBuf {
-    glib::user_data_dir().join("blink").join("video-positions")
+    glib::user_data_dir().join("blick").join("video-positions")
 }
 
 fn position_key(file: &gio::File) -> String {

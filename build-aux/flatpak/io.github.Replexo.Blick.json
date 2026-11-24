@@ -1,23 +1,22 @@
 {
-    "id": "io.github.Replexo.Blink.Devel",
+    "id": "io.github.Replexo.Blick",
     "runtime": "org.gnome.Platform",
-    "runtime-version": "master",
+    "runtime-version": "51",
     "sdk": "org.gnome.Sdk",
     "sdk-extensions": [
         "org.freedesktop.Sdk.Extension.rust-stable",
         "org.freedesktop.Sdk.Extension.llvm22"
     ],
-    "command": "blink",
+    "command": "blick",
     "finish-args": [
-        "--own-name=org.mpris.MediaPlayer2.blink",
-        "--socket=pulseaudio",
         "--share=ipc",
+        "--share=network",
+        "--own-name=org.mpris.MediaPlayer2.blick",
+        "--socket=pulseaudio",
         "--socket=fallback-x11",
         "--socket=wayland",
         "--device=dri",
         "--filesystem=host",
-        "--env=RUST_BACKTRACE=full",
-        "--env=RUST_LOG=debug",
         "--talk-name=org.gtk.vfs.*",
         "--filesystem=xdg-run/gvfs",
         "--filesystem=xdg-run/gvfsd"
@@ -28,7 +27,6 @@
             "--share=network"
         ],
         "env": {
-            "RUSTFLAGS": "-C force-frame-pointers=yes",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER": "clang",
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER": "clang",
             "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS": "-C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold",
@@ -258,11 +256,11 @@
             ]
         },
         {
-            "name": "blink",
+            "name": "blick",
             "buildsystem": "meson",
             "config-opts": [
-                "-Dprofile=dev",
-                "-Dapp_id_suffix=.Devel"
+                "-Dprofile=release",
+                "-Dupdate_check=true"
             ],
             "sources": [
                 {

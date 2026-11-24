@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Blink contributors
+// Copyright (c) 2026 Blick contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -19,7 +19,7 @@
 //! video
 //!
 //! The bus name is only owned while a video is shown, so the desktop does
-//! not list Blink as a player while it shows photos.
+//! not list Blick as a player while it shows photos.
 
 use std::cell::{Cell, RefCell};
 
@@ -28,10 +28,10 @@ use gtk::prelude::*;
 use crate::deps::*;
 use crate::widgets::LpVideoPlayer;
 
-const BUS_NAME: &str = "org.mpris.MediaPlayer2.blink";
+const BUS_NAME: &str = "org.mpris.MediaPlayer2.blick";
 const OBJECT_PATH: &str = "/org/mpris/MediaPlayer2";
 const PLAYER_INTERFACE: &str = "org.mpris.MediaPlayer2.Player";
-const TRACK_ID: &str = "/io/github/Replexo/Blink/Video";
+const TRACK_ID: &str = "/io/github/Replexo/Blick/Video";
 
 const INTERFACES: &str = r#"
 <node>
@@ -221,7 +221,7 @@ fn root_property(name: &str) -> glib::Variant {
     match name {
         "CanQuit" | "HasTrackList" => false.to_variant(),
         "CanRaise" => true.to_variant(),
-        "Identity" => "Blink".to_variant(),
+        "Identity" => "Blick".to_variant(),
         "DesktopEntry" => crate::config::APP_ID.to_variant(),
         "SupportedUriSchemes" => vec!["file"].to_variant(),
         "SupportedMimeTypes" => Vec::<String>::new().to_variant(),

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds dist/Blink-<version>-<arch>.AppImage inside the deb image
+# Builds dist/Blick-<version>-<arch>.AppImage inside the deb image
 #
 # Image loading uses the host's glycin loaders, which sandbox each image.
 # Videos play with the host's GStreamer and its plugins, so the GStreamer
@@ -18,7 +18,7 @@ DESTDIR="$appdir" meson install -C /tmp/build-appimage
 mkdir -p "$appdir/usr/share/tessdata"
 cp /opt/tessdata/*.traineddata "$appdir/usr/share/tessdata/"
 mkdir -p "$appdir/apprun-hooks"
-cat > "$appdir/apprun-hooks/blink.sh" <<'HOOK'
+cat > "$appdir/apprun-hooks/blick.sh" <<'HOOK'
 export TESSDATA_PREFIX="$APPDIR/usr/share/tessdata"
 HOOK
 
@@ -26,13 +26,13 @@ HOOK
 # optional modules installed
 mkdir -p "$(pkg-config --variable=libdir gtk4)/gtk-4.0/4.0.0"
 
-export DEPLOY_GTK_VERSION=4 OUTPUT="/src/dist/Blink-$version-$(uname -m).AppImage"
-export APPIMAGE_EXTRACT_AND_RUN=1 LDAI_RUNTIME_FILE=/opt/linuxdeploy/runtime-x86_64 LDAI_UPDATE_INFORMATION="gh-releases-zsync|Replexo|Blink|latest|Blink-*$(uname -m).AppImage.zsync"
+export DEPLOY_GTK_VERSION=4 OUTPUT="/src/dist/Blick-$version-$(uname -m).AppImage"
+export APPIMAGE_EXTRACT_AND_RUN=1 LDAI_RUNTIME_FILE=/opt/linuxdeploy/runtime-x86_64 LDAI_UPDATE_INFORMATION="gh-releases-zsync|Replexo|Blick|latest|Blick-*$(uname -m).AppImage.zsync"
 mkdir -p /src/dist
 cd /opt/linuxdeploy
 ./linuxdeploy-x86_64.AppImage --appdir "$appdir" \
-    --desktop-file "$appdir/usr/share/applications/io.github.Replexo.Blink.desktop" \
-    --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/io.github.Replexo.Blink.svg" \
+    --desktop-file "$appdir/usr/share/applications/io.github.Replexo.Blick.desktop" \
+    --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/io.github.Replexo.Blick.svg" \
     --exclude-library 'libgst*' \
     --plugin gtk --output appimage
-mv Blink*.zsync /src/dist/ 2>/dev/null || true
+mv Blick*.zsync /src/dist/ 2>/dev/null || true

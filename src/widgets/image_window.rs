@@ -1040,7 +1040,7 @@ impl LpImageWindow {
                     .and_then(|file| file.basename())
                     .map(|name| name.display().to_string())
             })
-            .unwrap_or_else(|| gettext("Blink"));
+            .unwrap_or_else(|| gettext("Blick"));
 
         self.window_inspect(|x| x.set_title(Some(&title)));
     }

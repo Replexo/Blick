@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Blink contributors
+// Copyright (c) 2026 Blick contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -698,7 +698,7 @@ fn temp_dir() -> Result<PathBuf, Error> {
     let n = COUNTER.get();
     COUNTER.set(n + 1);
     let dir = glib::user_cache_dir()
-        .join("blink")
+        .join("blick")
         .join(format!("export-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|err| Error::Failed(err.to_string()))?;
     Ok(dir)
@@ -743,7 +743,7 @@ mod tests {
         if glib::find_program_in_path("ffmpeg").is_none() {
             return;
         }
-        let dir = std::env::temp_dir().join(format!("blink-cut-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("blick-cut-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let input = dir.join("in.mp4");
         let status = std::process::Command::new("ffmpeg")

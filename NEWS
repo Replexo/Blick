@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Renamed to Blink, with a new icon. The packages are now called `blink` and replace `glance-viewer`.
+- Renamed to Blick, with a new icon. The packages are now called `blick` and replace `glance-viewer`.
 - Videos play in the viewer, next to photos: seek preview, skipping, frame steps, speed, loop, resume, media keys, and zoom, copy and live text when paused.
 - Subtitles: sidecar files load by themselves, track and audio choice, size and delay.
 - Motion photos from Google, Samsung and iPhone Live Photos can play their moving part.

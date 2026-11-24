@@ -1,5 +1,5 @@
 # Maintainer: Replexo <196697396+Replexo@users.noreply.github.com>
-pkgname=blink
+pkgname=blick
 pkgver=1.2
 pkgrel=1
 conflicts=('glance' 'glance-viewer')
@@ -7,7 +7,7 @@ replaces=('glance-viewer')
 options=('!debug')
 pkgdesc='View and edit images, based on GNOME Loupe'
 arch=('x86_64' 'aarch64')
-url='https://github.com/Replexo/Blink'
+url='https://github.com/Replexo/Blick'
 license=('GPL-3.0-or-later')
 depends=('gtk4>=4.20' 'libadwaita>=1.8' 'libgweather-4' 'libseccomp' 'lcms2'
          'fontconfig' 'libsoup3' 'tesseract' 'tesseract-data-eng' 'glycin' 'bubblewrap'

@@ -15,7 +15,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Makes Blink the default app for the image types it opens
+//! Makes Blick the default app for the image types it opens
 //!
 //! Writes the "Default Applications" group of `mimeapps.list`, which GNOME and
 //! KDE both read. Inside Flatpak, GIO would only change the sandbox's own copy,
@@ -67,7 +67,7 @@ pub fn is_available() -> bool {
     app_info().is_some()
 }
 
-/// What Blink can be the default for
+/// What Blick can be the default for
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     Image,
@@ -82,7 +82,7 @@ impl Kind {
         }
     }
 
-    /// The most common types, which decide if Blink is the default already
+    /// The most common types, which decide if Blick is the default already
     fn main_types(self) -> [&'static str; 2] {
         match self {
             Self::Image => ["image/jpeg", "image/png"],
@@ -118,7 +118,7 @@ fn without(apps: &str, id: &str) -> String {
         .collect()
 }
 
-/// Whether Blink already opens the main types of `kind` by default
+/// Whether Blick already opens the main types of `kind` by default
 pub fn is_default(kind: Kind) -> bool {
     let id = desktop_id();
     let types = kind.main_types();
@@ -140,7 +140,7 @@ pub fn is_default(kind: Kind) -> bool {
     })
 }
 
-/// Sets Blink as the default for every type of `kind` it opens, and returns
+/// Sets Blick as the default for every type of `kind` it opens, and returns
 /// how many types changed
 pub fn make_default(kind: Kind) -> anyhow::Result<usize> {
     let types = mime_types(kind)?;
@@ -150,7 +150,7 @@ pub fn make_default(kind: Kind) -> anyhow::Result<usize> {
 
     let mut changed = 0;
     for mime in &types {
-        // Other apps stay as fallbacks after Blink
+        // Other apps stay as fallbacks after Blick
         let others = key_file
             .string(DEFAULTS, mime)
             .map(|apps| without(&apps, &id))

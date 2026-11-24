@@ -4,13 +4,13 @@
   <replaces><id>io.github.Replexo.Glance</id></replaces>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
-  <name>Blink</name>
+  <name>Blick</name>
   <developer id="io.github.replexo">
     <name>Replexo</name>
   </developer>
   <summary>View and edit images and videos</summary>
   <description>
-    <p>Blink is an image viewer and video player with built-in editing. Browse your photos and videos, view their details, and make quick edits without opening a separate editor.</p>
+    <p>Blick is an image viewer and video player with built-in editing. Browse your photos and videos, view their details, and make quick edits without opening a separate editor.</p>
     <ul>
       <li>Mark up images with a brush, highlighter, lines, arrows, shapes and text</li>
       <li>Adjust brightness, contrast, highlights, shadows and saturation</li>
@@ -19,23 +19,23 @@
       <li>Play videos with subtitles, audio tracks and a frame preview</li>
       <li>Trim videos to the exact frame, remove the sound, rotate, flip and save smaller copies</li>
     </ul>
-    <p>Blink is based on Loupe, the GNOME image viewer.</p>
+    <p>Blick is based on Loupe, the GNOME image viewer.</p>
   </description>
-  <url type="homepage">https://github.com/Replexo/Blink</url>
-  <url type="bugtracker">https://github.com/Replexo/Blink/issues</url>
-  <url type="vcs-browser">https://github.com/Replexo/Blink</url>
+  <url type="homepage">https://github.com/Replexo/Blick</url>
+  <url type="bugtracker">https://github.com/Replexo/Blick/issues</url>
+  <url type="vcs-browser">https://github.com/Replexo/Blick</url>
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/Replexo/Blink/main/data/screenshots/markup.png</image>
+      <image>https://raw.githubusercontent.com/Replexo/Blick/main/data/screenshots/markup.png</image>
       <caption>Marking up an image</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Replexo/Blink/main/data/screenshots/adjust.png</image>
+      <image>https://raw.githubusercontent.com/Replexo/Blick/main/data/screenshots/adjust.png</image>
       <caption>Adjusting colours</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/Replexo/Blink/main/data/screenshots/crop.png</image>
+      <image>https://raw.githubusercontent.com/Replexo/Blick/main/data/screenshots/crop.png</image>
       <caption>Cropping</caption>
     </screenshot>
   </screenshots>

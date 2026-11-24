@@ -18,7 +18,7 @@
 #![allow(clippy::new_without_default)]
 
 /*!
-# Blink Image Viewer
+# Blick Image Viewer
 
 Code documentation
 
@@ -80,12 +80,12 @@ use tracing_subscriber::layer::*;
 use tracing_subscriber::util::*;
 
 static GRESOURCE_BYTES: &[u8] =
-    gvdb_macros::include_gresource_from_dir!("/io/github/Replexo/Blink", "data/resources");
+    gvdb_macros::include_gresource_from_dir!("/io/github/Replexo/Blick", "data/resources");
 
 pub fn main() -> glib::ExitCode {
     // Follow G_MESSAGES_DEBUG env variable
     let default_level =
-        if !glib::log_writer_default_would_drop(glib::LogLevel::Debug, Some("blink")) {
+        if !glib::log_writer_default_would_drop(glib::LogLevel::Debug, Some("blick")) {
             tracing_subscriber::filter::LevelFilter::DEBUG
         } else {
             tracing_subscriber::filter::LevelFilter::ERROR
@@ -130,8 +130,8 @@ pub fn main() -> glib::ExitCode {
     unsafe {
         setlocale(LocaleCategory::LcAll, "");
     }
-    bindtextdomain("blink", config::LOCALEDIR).unwrap();
-    textdomain("blink").unwrap();
+    bindtextdomain("blick", config::LOCALEDIR).unwrap();
+    textdomain("blick").unwrap();
 
     tracing::trace!("gettext initialized");
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 Blink contributors
+// Copyright (c) 2026 Blick contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ fn extract_embedded(path: &Path) -> Option<PathBuf> {
     let data = std::fs::read(path).ok()?;
     let offset = embedded_offset(&data)?;
 
-    let dir = glib::user_cache_dir().join("blink").join("motion");
+    let dir = glib::user_cache_dir().join("blick").join("motion");
     std::fs::create_dir_all(&dir).ok()?;
     let key = path.to_string_lossy().to_string();
     let hash = glib::compute_checksum_for_string(glib::ChecksumType::Sha1, key.as_str())?;

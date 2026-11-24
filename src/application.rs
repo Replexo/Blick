@@ -147,7 +147,7 @@ impl LpApplication {
         glib::Object::builder()
             .property("application-id", config::APP_ID)
             .property("flags", gio::ApplicationFlags::HANDLES_OPEN)
-            .property("resource-base-path", "/io/github/Replexo/Blink")
+            .property("resource-base-path", "/io/github/Replexo/Blick")
             .build()
     }
 
@@ -225,19 +225,19 @@ impl LpApplication {
         Ok(newer.then_some(release))
     }
 
-    /// Makes Blink the default image viewer or video player, after the user
+    /// Makes Blick the default image viewer or video player, after the user
     /// asked for it
     fn make_default(&self, kind: crate::default_app::Kind) {
         use crate::default_app::Kind;
         let window = self.active_window().and_downcast::<LpWindow>();
         let (done, failed) = match kind {
             Kind::Image => (
-                gettext("Blink is now the default image viewer"),
-                gettext("Could not make Blink the default image viewer"),
+                gettext("Blick is now the default image viewer"),
+                gettext("Could not make Blick the default image viewer"),
             ),
             Kind::Video => (
-                gettext("Blink is now the default video player"),
-                gettext("Could not make Blink the default video player"),
+                gettext("Blick is now the default video player"),
+                gettext("Could not make Blick the default video player"),
             ),
         };
         match crate::default_app::make_default(kind) {
@@ -256,7 +256,7 @@ impl LpApplication {
         self.update_make_default();
     }
 
-    /// Greys out the menu items while Blink is the default already, or
+    /// Greys out the menu items while Blick is the default already, or
     /// when the desktop file is not installed
     fn update_make_default(&self) {
         use crate::default_app::Kind;
@@ -291,7 +291,7 @@ impl LpApplication {
             .map(|w| gtk::prelude::WidgetExt::display(&w).app_launch_context());
         glib::spawn_future_local(async move {
             if let Err(e) =
-                gio::AppInfo::launch_default_for_uri_future("help:blink", context.as_ref()).await
+                gio::AppInfo::launch_default_for_uri_future("help:blick", context.as_ref()).await
             {
                 tracing::error!("Failed to launch help: {}", e.message());
             }

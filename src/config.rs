@@ -15,10 +15,10 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-pub const APP_ID: &str = default_env(option_env!("APP_ID"), "io.github.Replexo.Blink.Devel");
+pub const APP_ID: &str = default_env(option_env!("APP_ID"), "io.github.Replexo.Blick.Devel");
 pub const VERSION: &str = default_env(option_env!("VERSION"), "unknown");
 pub const LOCALEDIR: &str = default_env(option_env!("LOCALEDIR"), "/usr/share/locale/");
-/// Whether Blink looks for new releases on GitHub, off for Flathub and distributions
+/// Whether Blick looks for new releases on GitHub, off for Flathub and distributions
 pub const UPDATE_CHECK: bool = is_true(option_env!("UPDATE_CHECK"));
 
 const fn default_env(v: Option<&'static str>, default: &'static str) -> &'static str {
