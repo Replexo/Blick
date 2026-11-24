@@ -73,7 +73,8 @@ mod imp {
         pub(super) position_label: gtk::Label,
         pub(super) duration_label: gtk::Label,
         pub(super) seek: gtk::Scale,
-        pub(super) volume_button: gtk::MenuButton,
+        pub(super) fullscreen_button: RefCell<Option<gtk::Button>>,
+        pub(super) tracks_button: RefCell<Option<gtk::MenuButton>>,
         pub(super) volume_scale: gtk::Scale,
         pub(super) mute_button: gtk::ToggleButton,
         pub(super) actions: gio::SimpleActionGroup,
@@ -178,8 +179,9 @@ mod imp {
 
             self.play_button.set_icon_name("glance-play-symbolic");
             self.play_button.set_tooltip_text(Some(&gettext("Play")));
-            self.play_button.add_css_class("flat");
             self.play_button.add_css_class("circular");
+            self.play_button.add_css_class("video-play");
+            self.play_button.set_valign(gtk::Align::Center);
             self.play_button.connect_clicked(clone!(
                 #[weak]
                 obj,
@@ -214,11 +216,11 @@ mod imp {
 
             self.setup_preview();
 
-            self.volume_scale.set_orientation(gtk::Orientation::Vertical);
-            self.volume_scale.set_inverted(true);
+            // Volume: mute button and a slider next to it
             self.volume_scale.set_range(0., 1.);
             self.volume_scale.set_increments(0.05, 0.2);
-            self.volume_scale.set_size_request(-1, 140);
+            self.volume_scale.set_size_request(96, -1);
+            self.volume_scale.set_valign(gtk::Align::Center);
             self.volume_scale.set_value(VOLUME.get());
             self.volume_scale
                 .update_property(&[gtk::accessible::Property::Label(&gettext("Volume"))]);
@@ -231,10 +233,8 @@ mod imp {
                 }
             ));
 
-            self.mute_button.set_icon_name("glance-volume-muted-symbolic");
+            self.mute_button.set_icon_name("glance-volume-high-symbolic");
             self.mute_button.set_tooltip_text(Some(&gettext("Mute")));
-            self.mute_button.add_css_class("flat");
-            self.mute_button.add_css_class("circular");
             self.mute_button.set_active(MUTED.get());
             self.mute_button.connect_toggled(clone!(
                 #[weak]
@@ -245,91 +245,125 @@ mod imp {
                 }
             ));
 
-            let volume_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
-            volume_box.append(&self.volume_scale);
-            volume_box.append(&self.mute_button);
-            let volume_popover = gtk::Popover::new();
-            volume_popover.set_child(Some(&volume_box));
-            self.volume_button.set_popover(Some(&volume_popover));
-            self.volume_button.set_tooltip_text(Some(&gettext("Volume")));
-            self.volume_button.set_direction(gtk::ArrowType::Up);
-            self.volume_button.add_css_class("flat");
-            self.volume_button.add_css_class("circular");
-
             // Speed and looping
             let speed = gio::SimpleAction::new_stateful(
                 "speed",
                 Some(glib::VariantTy::STRING),
                 &"1".to_variant(),
             );
+            let speed_button = gtk::MenuButton::new();
+            // A label child, so the button shows no arrow
+            let speed_text = gtk::Label::new(Some(&speed_label(1.)));
+            speed_text.add_css_class("numeric");
+            speed_button.set_child(Some(&speed_text));
             speed.connect_activate(clone!(
                 #[weak]
                 obj,
+                #[weak]
+                speed_text,
                 move |action, target| {
                     if let Some(rate) = target
                         .and_then(|x| x.get::<String>())
                         .and_then(|x| x.parse::<f64>().ok())
                     {
                         action.set_state(&rate.to_string().to_variant());
+                        speed_text.set_label(&speed_label(rate));
                         obj.set_rate(rate);
                     }
                 }
             ));
             self.actions.add_action(&speed);
-            let looping = gio::SimpleAction::new_stateful("loop", None, &false.to_variant());
-            looping.connect_activate(clone!(
-                #[weak]
-                obj,
-                move |action, _| {
-                    let looping = !obj.imp().looping.get();
-                    obj.imp().looping.set(looping);
-                    action.set_state(&looping.to_variant());
-                }
-            ));
-            self.actions.add_action(&looping);
 
             let speed_menu = gio::Menu::new();
             for rate in SPEEDS {
-                // Translators: Playback speed, {} is a number like 1.5
-                let label = gettext_f("{}×", [rate.to_string()]);
-                speed_menu.append(
-                    Some(&label),
-                    Some(&format!("video.speed::{}", rate)),
-                );
+                speed_menu.append(Some(&speed_label(rate)), Some(&format!("video.speed::{}", rate)));
             }
-            let menu = gio::Menu::new();
-            menu.append_section(Some(&gettext("Speed")), &speed_menu);
-            let loop_section = gio::Menu::new();
-            loop_section.append(Some(&gettext("_Loop")), Some("video.loop"));
-            menu.append_section(None, &loop_section);
-            let options = gtk::MenuButton::new();
-            options.set_icon_name("glance-more-symbolic");
-            options.set_menu_model(Some(&menu));
-            options.set_tooltip_text(Some(&gettext("Playback Options")));
-            options.set_direction(gtk::ArrowType::Up);
-            options.add_css_class("flat");
-            options.add_css_class("circular");
+            speed_button.set_menu_model(Some(&speed_menu));
+            speed_button.set_tooltip_text(Some(&gettext("Speed")));
+            speed_button.set_direction(gtk::ArrowType::Up);
+
+            let loop_button = gtk::ToggleButton::new();
+            loop_button.set_icon_name("glance-loop-symbolic");
+            loop_button.set_tooltip_text(Some(&gettext("Loop")));
+            loop_button.connect_toggled(clone!(
+                #[weak]
+                obj,
+                move |button| obj.imp().looping.set(button.is_active())
+            ));
+
+            let skip_back = gtk::Button::from_icon_name("glance-skip-back-symbolic");
+            skip_back.set_tooltip_text(Some(&gettext("Back 10 Seconds")));
+            skip_back.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.skip(false)
+            ));
+            let skip_forward = gtk::Button::from_icon_name("glance-skip-forward-symbolic");
+            skip_forward.set_tooltip_text(Some(&gettext("Forward 10 Seconds")));
+            skip_forward.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.skip(true)
+            ));
+
+            let fullscreen = gtk::Button::from_icon_name("glance-fullscreen-symbolic");
+            fullscreen.set_tooltip_text(Some(&gettext("Fullscreen")));
+            fullscreen.connect_clicked(|button| {
+                let _ = button.activate_action("win.toggle-fullscreen", None);
+            });
+            self.fullscreen_button.replace(Some(fullscreen.clone()));
 
             let tracks = self.build_tracks_button();
+            self.tracks_button.replace(Some(tracks.clone()));
 
-            let bar = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-            bar.add_css_class("osd");
-            bar.add_css_class("toolbar");
+            for button in [
+                self.mute_button.upcast_ref::<gtk::Widget>(),
+                speed_button.upcast_ref(),
+                loop_button.upcast_ref(),
+                skip_back.upcast_ref(),
+                skip_forward.upcast_ref(),
+                fullscreen.upcast_ref(),
+                tracks.upcast_ref(),
+            ] {
+                button.add_css_class("flat");
+                button.add_css_class("circular");
+                button.set_valign(gtk::Align::Center);
+            }
+
+            // Position: time, seek bar, time left
+            let seek_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            seek_row.append(&self.position_label);
+            seek_row.append(&self.seek);
+            seek_row.append(&self.duration_label);
+
+            let start = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            start.append(&self.mute_button);
+            start.append(&self.volume_scale);
+            let center = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            center.append(&skip_back);
+            center.append(&self.play_button);
+            center.append(&skip_forward);
+            let end = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+            end.append(&tracks);
+            end.append(&speed_button);
+            end.append(&loop_button);
+            end.append(&fullscreen);
+            let button_row = gtk::CenterBox::new();
+            button_row.set_start_widget(Some(&start));
+            button_row.set_center_widget(Some(&center));
+            button_row.set_end_widget(Some(&end));
+
+            let bar = gtk::Box::new(gtk::Orientation::Vertical, 4);
             bar.add_css_class("video-controls");
             bar.set_margin_start(12);
             bar.set_margin_end(12);
             bar.set_margin_bottom(12);
-            bar.append(&self.play_button);
-            bar.append(&self.position_label);
-            bar.append(&self.seek);
-            bar.append(&self.duration_label);
-            bar.append(&self.volume_button);
-            bar.append(&tracks);
-            bar.append(&options);
+            bar.append(&seek_row);
+            bar.append(&button_row);
             bar.insert_action_group("video", Some(&self.actions));
 
             let clamp = adw::Clamp::new();
-            clamp.set_maximum_size(720);
+            clamp.set_maximum_size(780);
             clamp.set_child(Some(&bar));
 
             self.controls.set_child(Some(&clamp));
@@ -541,7 +575,7 @@ mod imp {
             let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 6);
             delay_box.set_margin_start(12);
             delay_box.set_margin_end(12);
-            let delay_title = gtk::Label::new(Some(&gettext("Delay")));
+            let delay_title = gtk::Label::new(Some(&gettext("Subtitle Delay")));
             delay_title.set_hexpand(true);
             delay_title.set_xalign(0.);
             self.delay_label.add_css_class("numeric");
@@ -570,7 +604,39 @@ mod imp {
             delay_box.append(&later);
             self.update_delay_label(0);
 
+            // Subtitle size as one segmented control
+            let size_group = adw::ToggleGroup::new();
+            for (name, label) in [
+                ("small", gettext("Small")),
+                ("medium", gettext("Medium")),
+                ("large", gettext("Large")),
+            ] {
+                let toggle = adw::Toggle::new();
+                toggle.set_name(Some(name));
+                toggle.set_label(Some(&label));
+                size_group.add(toggle);
+            }
+            size_group.set_active_name(Some("medium"));
+            size_group.connect_active_name_notify(clone!(
+                #[weak]
+                obj,
+                move |group| {
+                    if let Some(name) = group.active_name() {
+                        obj.imp().apply_subtitle_size(&name);
+                    }
+                }
+            ));
+            let size_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+            size_box.set_margin_start(12);
+            size_box.set_margin_end(12);
+            let size_title = gtk::Label::new(Some(&gettext("Subtitle Size")));
+            size_title.set_hexpand(true);
+            size_title.set_xalign(0.);
+            size_box.append(&size_title);
+            size_box.append(&size_group);
+
             let popover = gtk::PopoverMenu::from_model(Some(&self.tracks_menu));
+            popover.add_child(&size_box, "size");
             popover.add_child(&delay_box, "delay");
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-subtitles-symbolic");
@@ -623,17 +689,14 @@ mod imp {
                 menu.append_section(Some(&gettext("Audio")), &audio);
             }
 
-            let size = gio::Menu::new();
-            size.append(Some(&gettext("Small")), Some("video.subtitle-size::small"));
-            size.append(Some(&gettext("Medium")), Some("video.subtitle-size::medium"));
-            size.append(Some(&gettext("Large")), Some("video.subtitle-size::large"));
-            menu.append_section(Some(&gettext("Subtitle Size")), &size);
-
-            let delay = gio::Menu::new();
-            let item = gio::MenuItem::new(None, None);
-            item.set_attribute_value("custom", Some(&"delay".to_variant()));
-            delay.append_item(&item);
-            menu.append_section(None, &delay);
+            // Size and delay rows
+            let rows = gio::Menu::new();
+            for custom in ["size", "delay"] {
+                let item = gio::MenuItem::new(None, None);
+                item.set_attribute_value("custom", Some(&custom.to_variant()));
+                rows.append_item(&item);
+            }
+            menu.append_section(None, &rows);
 
             // Show the chosen tracks
             if let Some(action) = self.actions.lookup_action("subtitle") {
@@ -780,6 +843,23 @@ mod imp {
 
         pub(super) fn show_controls(&self) {
             self.controls.set_reveal_child(true);
+            let fullscreen = self
+                .picture
+                .root()
+                .and_downcast::<gtk::Window>()
+                .is_some_and(|w| w.is_fullscreen());
+            if let Some(button) = self.fullscreen_button.borrow().as_ref() {
+                button.set_icon_name(if fullscreen {
+                    "glance-fullscreen-exit-symbolic"
+                } else {
+                    "glance-fullscreen-symbolic"
+                });
+                button.set_tooltip_text(Some(&if fullscreen {
+                    gettext("Leave Fullscreen")
+                } else {
+                    gettext("Fullscreen")
+                }));
+            }
             self.picture.set_cursor(None);
             self.schedule_hide();
         }
@@ -807,7 +887,11 @@ mod imp {
                             .flatten()
                             .filter_map(|c| c.downcast::<gtk::EventControllerMotion>().ok())
                             .any(|motion| motion.contains_pointer());
-                        let menu_open = imp.volume_button.is_active();
+                        let menu_open = imp
+                            .tracks_button
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|b| b.is_active());
                         if imp.playing.get() && !over_controls && !menu_open {
                             imp.controls.set_reveal_child(false);
                             imp.picture.set_cursor_from_name(Some("none"));
@@ -834,7 +918,7 @@ mod imp {
             } else {
                 "glance-volume-high-symbolic"
             };
-            self.volume_button.set_icon_name(icon);
+            self.mute_button.set_icon_name(icon);
             if self.mute_button.is_active() != MUTED.get() {
                 self.mute_button.set_active(MUTED.get());
             }
@@ -851,6 +935,11 @@ mod imp {
             };
             self.position_label.set_label(&format_time(position));
             if let Some(duration) = self.duration.get() {
+                // Translators: Time left in a video, {} is a time like 1:05
+                self.duration_label.set_label(&gettext_f(
+                    "−{}",
+                    [format_time(duration.saturating_sub(position))],
+                ));
                 self.updating.set(true);
                 self.seek.set_range(0., duration.mseconds() as f64 / 1000.);
                 self.seek.set_value(position.mseconds() as f64 / 1000.);
@@ -867,7 +956,7 @@ mod imp {
                 return;
             };
             self.duration.set(Some(duration));
-            self.duration_label.set_label(&format_time(duration));
+
             self.update_position();
         }
 
@@ -1584,6 +1673,12 @@ pub fn video_info(uri: &str) -> Option<VideoInfo> {
         result.audio_codec = description(audio.caps());
     }
     Some(result)
+}
+
+/// `1×`, `1.5×`
+fn speed_label(rate: f64) -> String {
+    // Translators: Playback speed, {} is a number like 1.5
+    gettext_f("{}×", [rate.to_string()])
 }
 
 /// Title or language of a track, or its number
