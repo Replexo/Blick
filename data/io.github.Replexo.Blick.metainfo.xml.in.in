@@ -78,6 +78,15 @@
   </categories>
 
   <releases>
+    <release version="1.3" date="2026-11-25">
+      <description>
+        <p>Videos play like in GNOME's video player, with subtitles, audio tracks, speed and repeat.</p>
+        <p>Trim videos and edit them with Crop, Adjust and Markup.</p>
+        <p>Faster start, and windows open centred at a comfortable size.</p>
+        <p>New releases are announced once a day, with Update and Later.</p>
+        <p>Blick replaces Glance.</p>
+      </description>
+    </release>
     <release version="1.2" date="2026-11-15">
       <description>
         <p>A thumbnail strip in the viewer to jump between the photos in a folder.</p>
