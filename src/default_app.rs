@@ -179,3 +179,39 @@ pub fn make_default(kind: Kind) -> anyhow::Result<usize> {
     key_file.save_to_file(&path)?;
     Ok(changed)
 }
+
+/// Opens the types Glance opened with Blick, which replaces it
+pub fn take_over_from_glance() -> anyhow::Result<()> {
+    const GLANCE: &str = "io.github.Replexo.Glance.desktop";
+    let path = mimeapps_path();
+    if !path.exists() {
+        return Ok(());
+    }
+    let key_file = load(&path)?;
+    let id = desktop_id();
+
+    let mut changed = false;
+    for group in [DEFAULTS, "Added Associations"] {
+        let Ok(keys) = key_file.keys(group) else {
+            continue;
+        };
+        for mime in keys.iter().map(|key| key.to_string()) {
+            let Ok(apps) = key_file.string(group, &mime) else {
+                continue;
+            };
+            if apps.split(';').any(|app| app == GLANCE) {
+                let replaced: String = apps
+                    .split(';')
+                    .filter(|app| !app.is_empty() && *app != id)
+                    .map(|app| if app == GLANCE { format!("{id};") } else { format!("{app};") })
+                    .collect();
+                key_file.set_string(group, &mime, &replaced);
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        key_file.save_to_file(&path)?;
+    }
+    Ok(())
+}

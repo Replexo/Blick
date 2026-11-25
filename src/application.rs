@@ -87,6 +87,11 @@ mod imp {
             tracing::trace!("Startup");
             self.parent_startup();
 
+            // Blick replaces Glance
+            if let Err(err) = crate::default_app::take_over_from_glance() {
+                tracing::debug!("Could not take over Glance's file types: {err:#}");
+            }
+
             // Force dark theme
             self.obj()
                 .style_manager()
