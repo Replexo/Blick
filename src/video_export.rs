@@ -571,7 +571,8 @@ async fn smart_cut(
     } else {
         args.extend(["-map".into(), "0:v".into()]);
     }
-    args.extend(["-c".into(), "copy".into()]);
+    args.extend(["-c:v".into(), "copy".into()]);
+    args.extend(audio_codec(output_path, edit));
     args.push(output_path.to_string_lossy().to_string());
     ffmpeg(&args, total, total, progress, cancellable).await
 }
@@ -602,7 +603,8 @@ async fn reencode(
     if edit.mute {
         args.push("-an".into());
     } else {
-        args.extend(["-map".into(), "0:a?".into(), "-c:a".into(), "copy".into()]);
+        args.extend(["-map".into(), "0:a?".into()]);
+        args.extend(audio_codec(output_path, edit));
     }
     args.push(output_path.to_string_lossy().to_string());
     ffmpeg(&args, edit.end - edit.start, 0., progress, cancellable).await
@@ -975,7 +977,8 @@ pub async fn save_edited(
     if edit.mute || !source.has_audio {
         args.push("-an".into());
     } else {
-        args.extend(["-map".into(), "0:a?".into(), "-c:a".into(), "copy".into()]);
+        args.extend(["-map".into(), "0:a?".into()]);
+        args.extend(audio_codec(output_path, edit));
     }
     args.push(output_path.to_string_lossy().to_string());
     ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await
@@ -999,6 +1002,26 @@ async fn source_size(input: &Path, cancellable: &gio::Cancellable) -> Option<(u3
         .and_then(|list| list.iter().find_map(|d| d["rotation"].as_f64()))
         .unwrap_or_default() as i32;
     Some(if rotation.rem_euclid(180) == 90 { (h, w) } else { (w, h) })
+}
+
+/// How the sound of `edit` is written to `output`. A copy keeps the
+/// packets from before the cut that some codecs, like Opus or MP3, start
+/// at, so their sound would play ahead of the picture; it is encoded
+/// again then, in a codec the container takes.
+fn audio_codec(output: &Path, edit: &VideoEdit) -> Vec<String> {
+    if edit.start <= 0. {
+        return vec!["-c:a".into(), "copy".into()];
+    }
+    let extension = output
+        .extension()
+        .map(|x| x.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    let (codec, bitrate) = match extension.as_str() {
+        "webm" | "mkv" | "ogv" => ("libopus", "160k"),
+        "avi" => ("libmp3lame", "192k"),
+        _ => ("aac", "192k"),
+    };
+    vec!["-c:a".into(), codec.into(), "-b:a".into(), bitrate.into()]
 }
 
 /// A folder for the pieces of an export, removed when dropped, also when
