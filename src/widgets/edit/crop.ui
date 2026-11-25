@@ -73,7 +73,6 @@
                             <property name="row">0</property>
                           </layout>
                           <property name="halign">center</property>
-                          <property name="spacing">12</property>
                           <child>
                             <object class="GtkCenterBox">
                               <property name="center-widget">
@@ -113,8 +112,8 @@
                                               </child>
                                               <child>
                                                 <object class="GtkLabel" id="geometry_straighten_value">
-                                                  <property name="width-chars">4</property>
-                                                  <property name="xalign">1</property>
+                                                  <property name="width-chars">3</property>
+                                                  <property name="xalign">0</property>
                                                   <property name="label">0</property>
                                                   <style>
                                                     <class name="numeric"/>
@@ -151,8 +150,8 @@
                                               </child>
                                               <child>
                                                 <object class="GtkLabel" id="geometry_vertical_value">
-                                                  <property name="width-chars">4</property>
-                                                  <property name="xalign">1</property>
+                                                  <property name="width-chars">3</property>
+                                                  <property name="xalign">0</property>
                                                   <property name="label">0</property>
                                                   <style>
                                                     <class name="numeric"/>
@@ -189,8 +188,8 @@
                                               </child>
                                               <child>
                                                 <object class="GtkLabel" id="geometry_horizontal_value">
-                                                  <property name="width-chars">4</property>
-                                                  <property name="xalign">1</property>
+                                                  <property name="width-chars">3</property>
+                                                  <property name="xalign">0</property>
                                                   <property name="label">0</property>
                                                   <style>
                                                     <class name="numeric"/>
@@ -203,16 +202,23 @@
                                           </property>
                                         </object>
                                       </child>
+                                      <child>
+                                        <object class="GtkSeparator">
+                                          <property name="orientation">vertical</property>
+                                        </object>
+                                      </child>
+                                      <child>
+                                        <object class="LpCenterSlider" id="geometry_slider">
+                                          <property name="valign">center</property>
+                                          <property name="width-request">200</property>
+                                          <property name="margin-start">6</property>
+                                          <property name="margin-end">6</property>
+                                        </object>
+                                      </child>
                                     </object>
                                   </property>
                                 </object>
                               </property>
-                            </object>
-                          </child>
-                          <child>
-                            <object class="LpCenterSlider" id="geometry_slider">
-                              <property name="valign">center</property>
-                              <property name="width-request">220</property>
                             </object>
                           </child>
                         </object>
