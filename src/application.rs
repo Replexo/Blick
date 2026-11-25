@@ -91,6 +91,17 @@ mod imp {
             if let Err(err) = crate::default_app::take_over_from_glance() {
                 tracing::debug!("Could not take over Glance's file types: {err:#}");
             }
+            // On its first start Blick opens all images and videos; a
+            // development build leaves them alone
+            let settings = self.obj().settings();
+            if !config::APP_ID.ends_with(".Devel") && !settings.boolean("made-default") {
+                for kind in [crate::default_app::Kind::Image, crate::default_app::Kind::Video] {
+                    if let Err(err) = crate::default_app::make_default(kind) {
+                        tracing::warn!("Could not make Blick the default app: {err:#}");
+                    }
+                }
+                let _ = settings.set_boolean("made-default", true);
+            }
 
             // Force dark theme
             self.obj()

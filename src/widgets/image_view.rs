@@ -450,23 +450,16 @@ mod imp {
         pub fn is_previous_available(&self) -> bool {
             let obj = self.obj();
 
-            if let Some(file) = obj.current_file() {
-                obj.model().index_of(&file) != Some(0)
-            } else {
-                false
-            }
+            obj.current_file()
+                .is_some_and(|file| obj.model().before(&file).is_some())
         }
 
         /// Returns `true` if there is an image after the current one
         pub fn is_next_available(&self) -> bool {
             let obj = self.obj();
 
-            if let Some(file) = obj.current_file() {
-                let model = obj.model();
-                model.index_of(&file) != Some(model.n_files().saturating_sub(1))
-            } else {
-                false
-            }
+            obj.current_file()
+                .is_some_and(|file| obj.model().after(&file).is_some())
         }
     }
 }
@@ -1093,12 +1086,8 @@ impl LpImageView {
         let Some(current) = self.current_file() else {
             return false;
         };
-        let files = self.files();
-        files
-            .iter()
-            .position(|f| f.equal(&current))
-            .and_then(|i| files.get(i + 1))
-            .is_some_and(crate::widgets::image_page::is_video)
+        // Videos move on to videos only, so any next file is one
+        self.current_video().is_some() && self.model().after(&current).is_some()
     }
 
     fn page_changed(&self) {

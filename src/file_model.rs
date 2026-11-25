@@ -37,6 +37,8 @@ struct Entry {
     /// Determines the sort order
     sort: VecDeque<glib::FilenameCollationKey>,
     file: gio::File,
+    /// Photos and videos are browsed apart
+    video: bool,
 }
 
 impl Entry {
@@ -47,6 +49,14 @@ impl Entry {
     ) -> Self {
         let mut sort = VecDeque::new();
         let mut frac_file = file.clone();
+        let video = info
+            .as_ref()
+            .and_then(|info| info.attribute_string(gio::FILE_ATTRIBUTE_STANDARD_FAST_CONTENT_TYPE))
+            .and_then(|content_type| gio::content_type_get_mime_type(&content_type))
+            .map_or_else(
+                || crate::widgets::image_page::is_video(&file),
+                |mime| mime.starts_with("video/"),
+            );
 
         // Use already available info for the filename as performance optimization
         let mut available_file_info = info.map(Ok);
@@ -98,7 +108,7 @@ impl Entry {
             }
         }
 
-        Self { sort, file }
+        Self { sort, file, video }
     }
 }
 
@@ -303,26 +313,29 @@ impl LpFileModel {
         self.imp().files.borrow().contains_key(&file.uri())
     }
 
+    /// The file before `file` of the same kind, photo or video
     pub fn before(&self, file: &gio::File) -> Option<gio::File> {
         let index = self.index_of(file)?;
-
-        self.imp()
-            .files
-            .borrow()
-            .get_index(index.checked_sub(1)?)
-            .map(|x| &x.1.file)
-            .cloned()
+        let files = self.imp().files.borrow();
+        let video = files.get_index(index)?.1.video;
+        files
+            .values()
+            .take(index)
+            .rev()
+            .find(|entry| entry.video == video)
+            .map(|entry| entry.file.clone())
     }
 
+    /// The file after `file` of the same kind, photo or video
     pub fn after(&self, file: &gio::File) -> Option<gio::File> {
         let index = self.index_of(file)?;
-
-        self.imp()
-            .files
-            .borrow()
-            .get_index(index.checked_add(1)?)
-            .map(|x| &x.1.file)
-            .cloned()
+        let files = self.imp().files.borrow();
+        let video = files.get_index(index)?.1.video;
+        files
+            .values()
+            .skip(index + 1)
+            .find(|entry| entry.video == video)
+            .map(|entry| entry.file.clone())
     }
 
     /// Returns `n` elements before and after given file
@@ -340,13 +353,18 @@ impl LpFileModel {
             return Err(());
         };
 
+        // Only files of the same kind, photo or video
+        let files = self.imp().files.borrow();
+        let video = files.get_index(index).is_some_and(|entry| entry.1.video);
+        let same: Vec<_> = files.iter().filter(|(_, v)| v.video == video).collect();
+        let index = same
+            .iter()
+            .position(|(_, v)| v.file.equal(file))
+            .unwrap_or_default();
         let reduce = n.saturating_sub(index);
 
-        Ok(self
-            .imp()
-            .files
-            .borrow()
-            .iter()
+        Ok(same
+            .into_iter()
             .skip(index.saturating_sub(n))
             .take(2 * n + 1 - reduce)
             .map(|(k, v)| (k.clone(), v.file.clone()))
