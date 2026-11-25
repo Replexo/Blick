@@ -79,6 +79,8 @@ mod imp {
         pub(super) show_remaining: Cell<bool>,
         /// Played to the end; playing again starts over
         pub(super) ended: Cell<bool>,
+        /// Subtitle delay in nanoseconds
+        pub(super) subtitle_offset: Cell<i64>,
         /// Room kept below the controls for the folder strip
         pub(super) bottom_inset: Cell<i32>,
         /// Tell if the pointer rests on the buttons or the bottom bar
@@ -860,7 +862,10 @@ mod imp {
             if let Some(text) = self.text_stream.borrow().clone() {
                 ids.push(text);
             }
-            playbin.send_event(gst::event::SelectStreams::new(ids.iter().map(|x| x.as_str())));
+            let playbin = playbin.clone();
+            in_background(move || {
+                playbin.send_event(gst::event::SelectStreams::new(ids.iter().map(|x| x.as_str())));
+            });
         }
 
         pub(super) fn apply_subtitle_size(&self, name: &str) {
@@ -871,7 +876,10 @@ mod imp {
                 .iter()
                 .find(|(n, _)| *n == name)
                 .map_or(22, |(_, points)| *points);
-            playbin.set_property("subtitle-font-desc", format!("Sans {points}"));
+            let playbin = playbin.clone();
+            in_background(move || {
+                playbin.set_property("subtitle-font-desc", format!("Sans {points}"));
+            });
         }
 
         /// Moves subtitles by `milliseconds`, later for positive values
@@ -879,8 +887,10 @@ mod imp {
             let Some(playbin) = self.playbin.get() else {
                 return;
             };
-            let offset = playbin.property::<i64>("text-offset") + milliseconds * 1_000_000;
-            playbin.set_property("text-offset", offset);
+            let offset = self.subtitle_offset.get() + milliseconds * 1_000_000;
+            self.subtitle_offset.set(offset);
+            let playbin = playbin.clone();
+            in_background(move || playbin.set_property("text-offset", offset));
             self.update_delay_label(offset);
         }
 
@@ -1056,11 +1066,15 @@ mod imp {
             let Some(playbin) = self.playbin.get() else {
                 return;
             };
-            if let Some(volume) = playbin.dynamic_cast_ref::<gst_audio::StreamVolume>() {
-                use gst_audio::prelude::StreamVolumeExt;
-                volume.set_volume(gst_audio::StreamVolumeFormat::Cubic, VOLUME.get());
-                volume.set_mute(MUTED.get());
-            }
+            let (level, muted) = (VOLUME.get(), MUTED.get());
+            let playbin = playbin.clone();
+            in_background(move || {
+                if let Some(volume) = playbin.dynamic_cast_ref::<gst_audio::StreamVolume>() {
+                    use gst_audio::prelude::StreamVolumeExt;
+                    volume.set_volume(gst_audio::StreamVolumeFormat::Cubic, level);
+                    volume.set_mute(muted);
+                }
+            });
             let icon = if MUTED.get() || VOLUME.get() <= 0. {
                 "glance-volume-muted-symbolic"
             } else if VOLUME.get() < 0.5 {
@@ -1273,7 +1287,12 @@ mod imp {
                 return;
             };
             let path = frame_path(obj.file().as_ref());
-            if texture.save_to_png(&path).is_err() {
+            // Encoding a large frame takes a while, so not on the main thread
+            let saved = {
+                let path = path.clone();
+                gio::spawn_blocking(move || texture.save_to_png(&path).is_ok()).await
+            };
+            if !matches!(saved, Ok(true)) {
                 return;
             }
             image.load_video_frame(&gio::File::for_path(&path)).await;
@@ -2090,6 +2109,26 @@ fn store_position(file: Option<&gio::File>, position: Option<f64>) {
 
 fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
+}
+
+/// Runs `f` on a worker thread, one job after the other. Changing a
+/// pipeline can wait for its video thread, which may be waiting for the
+/// main thread while the video starts, so the main thread never does it.
+pub fn in_background(f: impl FnOnce() + Send + 'static) {
+    type Job = Box<dyn FnOnce() + Send>;
+    static WORKER: OnceLock<std::sync::Mutex<std::sync::mpsc::Sender<Job>>> = OnceLock::new();
+    let sender = WORKER.get_or_init(|| {
+        let (sender, receiver) = std::sync::mpsc::channel::<Job>();
+        std::thread::spawn(move || {
+            while let Ok(job) = receiver.recv() {
+                job();
+            }
+        });
+        std::sync::Mutex::new(sender)
+    });
+    if let Ok(sender) = sender.lock() {
+        let _ = sender.send(Box::new(f));
+    }
 }
 
 /// A section of the settings menu: a heading over a control, like the

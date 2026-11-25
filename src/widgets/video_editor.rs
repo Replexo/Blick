@@ -67,6 +67,8 @@ mod imp {
         pub(super) saving_title: gtk::Label,
         pub(super) progress: gtk::ProgressBar,
         pub(super) cancellable: RefCell<Option<gio::Cancellable>>,
+        /// Mute as last given to the pipeline
+        pub(super) muted: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -304,8 +306,15 @@ mod imp {
             } else {
                 "glance-volume-high-symbolic"
             });
-            if let Some(playbin) = self.playbin.get() {
-                playbin.set_property("mute", edit.mute);
+            // Only on a change, and off the main thread, see `in_background`
+            if let Some(playbin) = self.playbin.get()
+                && self.muted.replace(edit.mute) != edit.mute
+            {
+                let playbin = playbin.clone();
+                let mute = edit.mute;
+                crate::widgets::video_player::in_background(move || {
+                    playbin.set_property("mute", mute);
+                });
             }
             let time = |s: f64| format_time(gst::ClockTime::from_seconds_f64(s));
             // Translators: Kept part of a video: start – end · length
