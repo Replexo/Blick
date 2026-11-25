@@ -221,6 +221,9 @@ impl LpApplication {
         if imp.update_available.replace(newer) != newer {
             self.notify_update_available();
         }
+        if newer {
+            self.remind_of_update(&release);
+        }
 
         Ok(newer.then_some(release))
     }
@@ -296,6 +299,71 @@ impl LpApplication {
                 tracing::error!("Failed to launch help: {}", e.message());
             }
         });
+    }
+
+    /// Tells about a new release in a toast, at most once a day
+    fn remind_of_update(&self, release: &Release) {
+        let settings = self.settings();
+        let now = glib::DateTime::now_utc().map_or(0, |now| now.to_unix());
+        if now < settings.int64("update-reminder") {
+            return;
+        }
+        let Some(window) = self.active_window().and_downcast::<LpWindow>() else {
+            return;
+        };
+        // Shown or not looked at, it comes back tomorrow until updated
+        let _ = settings.set_int64("update-reminder", now + 24 * 60 * 60);
+
+        let version = release.version.trim_start_matches(['v', 'V']);
+        let toast = adw::Toast::builder().timeout(10).build();
+        let later = gtk::Button::builder()
+            .label(gettext("_Later"))
+            .use_underline(true)
+            .css_classes(["flat"])
+            .build();
+        later.connect_clicked(glib::clone!(
+            #[weak]
+            toast,
+            move |_| toast.dismiss()
+        ));
+        let update = gtk::Button::builder()
+            .label(gettext("_Update"))
+            .use_underline(true)
+            .action_name("app.updates")
+            .build();
+        update.connect_clicked(glib::clone!(
+            #[weak]
+            toast,
+            move |_| toast.dismiss()
+        ));
+        let content = gtk::Box::builder().spacing(6).build();
+        let label = gtk::Label::new(Some(
+            // Translators: {} is a version number like 1.3
+            &gettext("Blick {} is available").replace("{}", version),
+        ));
+        label.set_margin_end(6);
+        content.append(&label);
+        content.append(&later);
+        content.append(&update);
+        // Later and Update are the only choices, so no close button
+        content.connect_map(|content| {
+            let mut toast = content.parent();
+            while let Some(widget) = toast.clone() {
+                if widget.type_().name() == "AdwToastWidget" {
+                    break;
+                }
+                toast = widget.parent();
+            }
+            let mut child = toast.and_then(|toast| toast.first_child());
+            while let Some(widget) = child {
+                if widget.is::<gtk::Button>() && widget.has_css_class("circular") {
+                    widget.set_visible(false);
+                }
+                child = widget.next_sibling();
+            }
+        });
+        toast.set_custom_title(Some(&content));
+        window.add_toast(toast);
     }
 
     pub fn settings(&self) -> gio::Settings {

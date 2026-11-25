@@ -646,7 +646,7 @@ impl LpImageWindow {
         false
     }
 
-    /// Adds the Updates menu item and a dot on the menu button for new releases
+    /// Adds the Updates menu item, with a dot for a new release
     fn setup_updates(&self) {
         let imp = self.imp();
         let app = LpApplication::default();
@@ -662,15 +662,6 @@ impl LpImageWindow {
                 .build();
             dot
         };
-
-        let icon = gtk::Overlay::builder()
-            .child(&gtk::Image::from_icon_name("glance-more-symbolic"))
-            .build();
-        icon.add_overlay(&dot());
-        imp.primary_menu.set_child(Some(&icon));
-        // A custom child makes it a raised text button; flat like the others
-        imp.primary_menu.add_css_class("image-button");
-        imp.primary_menu.add_css_class("update-menu");
 
         // The dot needs a custom item, plain menu items have no room for it
         let label = gtk::Label::builder()
