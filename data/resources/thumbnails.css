@@ -204,3 +204,28 @@ lpthumbnailstrip.compact .current .thumbnail {
     );
   }
 }
+
+/* Settings menu of the video player: rows like a menu's, values dimmed */
+popover.video-settings > contents {
+  padding: 6px;
+}
+
+popover.video-settings button.menu-row {
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-weight: normal;
+}
+
+popover.video-settings button.menu-row.menu-back {
+  font-weight: bold;
+}
+
+popover.video-settings .setting-row {
+  min-height: 40px;
+  padding: 0 4px 0 10px;
+}
+
+popover.video-settings separator {
+  margin: 6px 0;
+}

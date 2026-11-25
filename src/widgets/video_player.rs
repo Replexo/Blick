@@ -143,8 +143,10 @@ mod imp {
         /// Position and playing state to restore after reloading
         pub(super) restore: Cell<Option<(gst::ClockTime, bool)>>,
         /// Pages of the settings menu
-        pub(super) subtitle_tracks: gio::Menu,
-        pub(super) audio_tracks: gio::Menu,
+        /// Pages of the settings menu, and the subtitle size and delay rows
+        pub(super) settings_stack: gtk::Stack,
+        pub(super) size_row: RefCell<Option<gtk::Box>>,
+        pub(super) delay_row: RefCell<Option<gtk::Box>>,
         pub(super) delay_label: gtk::Label,
     }
 
@@ -462,11 +464,22 @@ mod imp {
                     #[weak]
                     obj,
                     move |button| {
-                        if !button.is_active() {
+                        if button.is_active() {
+                            keep_in_window(button);
+                        } else {
                             obj.imp().schedule_hide();
                         }
                     }
                 ));
+                if let Some(popover) = button.popover() {
+                    // Shifted to stay inside the window, so no arrow
+                    popover.set_has_arrow(false);
+                    popover.connect_show(clone!(
+                        #[weak]
+                        button,
+                        move |_| keep_in_window(&button)
+                    ));
+                }
             }
 
             // Moving the pointer on the page shows the controls, see `new()`;
@@ -689,7 +702,7 @@ mod imp {
 
             // Subtitle delay, in steps of 0.1 s
             self.delay_label.add_css_class("numeric");
-            self.delay_label.set_hexpand(true);
+            self.delay_label.set_width_chars(6);
             let earlier = gtk::Button::from_icon_name("minus-large-symbolic");
             earlier.update_property(&[gtk::accessible::Property::Label(&gettext("Show Subtitles Earlier"))]);
             let later = gtk::Button::from_icon_name("plus-large-symbolic");
@@ -708,22 +721,22 @@ mod imp {
                 obj,
                 move |_| obj.imp().shift_subtitles(100)
             ));
-            let delay_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            let delay_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             delay_buttons.append(&earlier);
             delay_buttons.append(&self.delay_label);
             delay_buttons.append(&later);
             self.update_delay_label(0);
-            let delay_row = menu_section(&gettext("Subtitle Delay"), &delay_buttons);
+            self.delay_row
+                .replace(Some(setting_row(&gettext("Delay"), &delay_buttons)));
 
-            // Subtitle size, like the speed row
+            // Subtitle size
             let size_group = adw::ToggleGroup::new();
-            size_group.set_homogeneous(true);
             size_group.add_css_class("round");
-            size_group.add_css_class("flat");
             for (name, label) in [
-                ("small", gettext("Small")),
-                ("medium", gettext("Medium")),
-                ("large", gettext("Large")),
+                // Translators: Small, medium and large subtitles
+                ("small", gettext("S")),
+                ("medium", gettext("M")),
+                ("large", gettext("L")),
             ] {
                 let toggle = adw::Toggle::new();
                 toggle.set_name(Some(name));
@@ -740,67 +753,204 @@ mod imp {
                     }
                 }
             ));
-            let size_row = menu_section(&gettext("Subtitle Size"), &size_group);
+            self.size_row
+                .replace(Some(setting_row(&gettext("Size"), &size_group)));
 
-            let speed_group = adw::ToggleGroup::new();
-            speed_group.set_homogeneous(true);
-            speed_group.add_css_class("round");
-            speed_group.add_css_class("flat");
-            for rate in SPEEDS {
-                let toggle = adw::Toggle::new();
-                toggle.set_name(Some(&rate.to_string()));
-                toggle.set_label(Some(&speed_label(rate)));
-                speed_group.add(toggle);
-            }
-            speed_group.set_active_name(Some("1"));
-            speed_group.connect_active_name_notify(clone!(
+            // The menu: a page of settings showing their values, each
+            // opening a short list; filled whenever it opens
+            self.settings_stack
+                .set_transition_type(gtk::StackTransitionType::SlideLeftRight);
+            self.settings_stack.set_transition_duration(200);
+            self.settings_stack.set_vhomogeneous(false);
+            self.settings_stack.set_interpolate_size(true);
+            self.settings_stack.set_size_request(260, -1);
+            let popover = gtk::Popover::new();
+            popover.add_css_class("menu");
+            popover.add_css_class("video-settings");
+            popover.set_child(Some(&self.settings_stack));
+            popover.connect_show(clone!(
                 #[weak]
                 obj,
-                move |group| {
-                    if let Some(name) = group.active_name() {
-                        obj.imp().actions.activate_action("speed", Some(&name.to_variant()));
-                    }
+                move |_| {
+                    let imp = obj.imp();
+                    imp.fill_settings();
+                    imp.settings_stack
+                        .set_visible_child_full("main", gtk::StackTransitionType::None);
                 }
             ));
-            let speed_row = menu_section(&gettext("Playback Speed"), &speed_group);
-
-            // The menu itself; the tracks fill the submenus as they appear
-            let custom = |id: &str| {
-                let item = gio::MenuItem::new(None, None);
-                item.set_attribute_value("custom", Some(&id.to_variant()));
-                item
-            };
-            let subtitle_extra = gio::Menu::new();
-            subtitle_extra.append_item(&custom("size"));
-            subtitle_extra.append_item(&custom("delay"));
-            let subtitles = gio::Menu::new();
-            subtitles.append_section(None, &self.subtitle_tracks);
-            subtitles.append_section(None, &subtitle_extra);
-
-            let tracks = gio::Menu::new();
-            tracks.append_submenu(Some(&gettext("_Language")), &self.audio_tracks);
-            tracks.append_submenu(Some(&gettext("_Subtitles")), &subtitles);
-            let repeat = gio::Menu::new();
-            repeat.append(Some(&gettext("_Repeat")), Some("video.loop"));
-            let speed = gio::Menu::new();
-            speed.append_item(&custom("speed"));
-            let menu = gio::Menu::new();
-            menu.append_section(None, &tracks);
-            menu.append_section(None, &repeat);
-            menu.append_section(None, &speed);
-
-            let popover = gtk::PopoverMenu::from_model_full(&menu, gtk::PopoverMenuFlags::NESTED);
-            popover.add_child(&size_row, "size");
-            popover.add_child(&delay_row, "delay");
-            popover.add_child(&speed_row, "speed");
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-settings-symbolic");
             button.set_halign(gtk::Align::End);
             button.set_direction(gtk::ArrowType::Up);
             button.set_popover(Some(&popover));
             button.update_property(&[gtk::accessible::Property::Label(&gettext("Settings"))]);
-            self.update_tracks_menu();
             button
+        }
+
+        /// Builds the settings menu's pages with the current choices
+        fn fill_settings(&self) {
+            let obj = self.obj();
+            let stack = &self.settings_stack;
+            while let Some(child) = stack.first_child() {
+                stack.remove(&child);
+            }
+            for row in [self.size_row.borrow().clone(), self.delay_row.borrow().clone()]
+                .into_iter()
+                .flatten()
+            {
+                if let Some(parent) = row.parent().and_downcast::<gtk::Box>() {
+                    parent.remove(&row);
+                }
+            }
+
+            let state = |name: &str| {
+                self.actions
+                    .lookup_action(name)
+                    .and_then(|action| action.state())
+                    .and_then(|state| state.get::<String>())
+                    .unwrap_or_default()
+            };
+            let close = clone!(
+                #[weak]
+                stack,
+                move || {
+                    if let Some(popover) = stack.ancestor(gtk::Popover::static_type()) {
+                        popover.downcast::<gtk::Popover>().unwrap().popdown();
+                    }
+                }
+            );
+            let page = |name: &str, title: Option<&str>| {
+                let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+                if let Some(title) = title {
+                    let back = menu_row(title, None, true);
+                    back.add_css_class("menu-back");
+                    back.connect_clicked(clone!(
+                        #[weak]
+                        stack,
+                        move |_| stack.set_visible_child_name("main")
+                    ));
+                    page.append(&back);
+                    page.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+                }
+                stack.add_named(&page, Some(name));
+                page
+            };
+            // A row that picks `target` for `action`, with a check when chosen
+            let choice = |label: &str, action: &'static str, target: String, chosen: bool| {
+                let row = check_row(label, chosen);
+                row.connect_clicked(clone!(
+                    #[weak]
+                    obj,
+                    #[strong]
+                    close,
+                    move |_| {
+                        obj.imp().actions.activate_action(action, Some(&target.to_variant()));
+                        close();
+                    }
+                ));
+                row
+            };
+            let opens = |label: &str, value: &str, name: &'static str| {
+                let row = menu_row(label, Some(value), false);
+                row.connect_clicked(clone!(
+                    #[weak]
+                    stack,
+                    move |_| stack.set_visible_child_name(name)
+                ));
+                row
+            };
+
+            let texts = self.stream_ids(gst::StreamType::TEXT);
+            let audios = self.stream_ids(gst::StreamType::AUDIO);
+            let subtitle = state("subtitle");
+            let audio = self
+                .audio_stream
+                .borrow()
+                .clone()
+                .or_else(|| audios.first().map(|(id, _)| id.clone()))
+                .unwrap_or_default();
+            let rate = state("speed").parse::<f64>().unwrap_or(1.);
+            let name_of = |list: &[(String, String)], id: &str| {
+                list.iter().find(|(x, _)| x == id).map(|(_, name)| name.clone())
+            };
+
+            // Main page
+            let main = page("main", None);
+            main.append(&opens(
+                &gettext("Subtitles"),
+                &name_of(&texts, &subtitle).unwrap_or_else(|| gettext("Off")),
+                "subtitles",
+            ));
+            if audios.len() > 1 {
+                main.append(&opens(
+                    &gettext("Audio"),
+                    &name_of(&audios, &audio).unwrap_or_default(),
+                    "audio",
+                ));
+            }
+            main.append(&opens(&gettext("Speed"), &speed_label(rate), "speed"));
+            let repeat = gtk::Switch::new();
+            repeat.set_active(self.looping.get());
+            repeat.set_valign(gtk::Align::Center);
+            repeat.set_can_focus(false);
+            repeat.set_can_target(false);
+            let repeat_row = menu_row(&gettext("Repeat"), None, false);
+            if let Some(content) = repeat_row.child().and_downcast::<gtk::Box>() {
+                content.append(&repeat);
+            }
+            repeat_row.update_property(&[gtk::accessible::Property::Label(&gettext("Repeat"))]);
+            repeat_row.connect_clicked(clone!(
+                #[weak]
+                obj,
+                #[weak]
+                repeat,
+                move |_| {
+                    obj.imp().actions.activate_action("loop", None);
+                    repeat.set_active(obj.imp().looping.get());
+                }
+            ));
+            main.append(&repeat_row);
+
+            // Subtitles: tracks, a file, then size and delay
+            let subtitles = page("subtitles", Some(&gettext("Subtitles")));
+            subtitles.append(&choice(&gettext("Off"), "subtitle", String::new(), subtitle.is_empty()));
+            for (id, label) in texts {
+                let chosen = id == subtitle;
+                subtitles.append(&choice(&label, "subtitle", id, chosen));
+            }
+            let add = check_row(&gettext("Add Subtitle File…"), false);
+            add.connect_clicked(clone!(
+                #[weak]
+                obj,
+                #[strong]
+                close,
+                move |_| {
+                    close();
+                    obj.imp().actions.activate_action("open-subtitles", None);
+                }
+            ));
+            subtitles.append(&add);
+            subtitles.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+            for row in [self.size_row.borrow().clone(), self.delay_row.borrow().clone()]
+                .into_iter()
+                .flatten()
+            {
+                subtitles.append(&row);
+            }
+
+            if audios.len() > 1 {
+                let page = page("audio", Some(&gettext("Audio")));
+                for (id, label) in audios {
+                    let chosen = id == audio;
+                    page.append(&choice(&label, "audio", id, chosen));
+                }
+            }
+
+            let speeds = page("speed", Some(&gettext("Speed")));
+            for speed in SPEEDS {
+                let chosen = (speed - rate).abs() < 0.01;
+                speeds.append(&choice(&speed_label(speed), "speed", speed.to_string(), chosen));
+            }
         }
 
         /// Stream ids of `stream_type` with a readable name each
@@ -818,27 +968,8 @@ mod imp {
                 .collect()
         }
 
-        /// Fills the language and subtitles submenus with the tracks
+        /// Shows the chosen tracks, also in an open settings menu
         pub(super) fn update_tracks_menu(&self) {
-            let subtitles = &self.subtitle_tracks;
-            subtitles.remove_all();
-            subtitles.append(Some(&gettext("None")), Some("video.subtitle::"));
-            for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
-                let item = gio::MenuItem::new(Some(&label), None);
-                item.set_action_and_target_value(Some("video.subtitle"), Some(&id.to_variant()));
-                subtitles.append_item(&item);
-            }
-            subtitles.append(Some(&gettext("_Add Subtitle File…")), Some("video.open-subtitles"));
-
-            let audio = &self.audio_tracks;
-            audio.remove_all();
-            for (id, label) in self.stream_ids(gst::StreamType::AUDIO) {
-                let item = gio::MenuItem::new(Some(&label), None);
-                item.set_action_and_target_value(Some("video.audio"), Some(&id.to_variant()));
-                audio.append_item(&item);
-            }
-
-            // Show the chosen tracks
             if let Some(action) = self.actions.lookup_action("subtitle") {
                 let id = self.text_stream.borrow().clone().unwrap_or_default();
                 action.change_state(&id.to_variant());
@@ -846,6 +977,14 @@ mod imp {
             if let Some(action) = self.actions.lookup_action("audio") {
                 let id = self.audio_stream.borrow().clone().unwrap_or_default();
                 action.change_state(&id.to_variant());
+            }
+            if self.settings_stack.is_mapped() {
+                let page = self.settings_stack.visible_child_name();
+                self.fill_settings();
+                if let Some(page) = page {
+                    self.settings_stack
+                        .set_visible_child_full(&page, gtk::StackTransitionType::None);
+                }
             }
         }
 
@@ -2102,6 +2241,7 @@ fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
 }
 
+
 /// Changes the state of `pipeline` on the worker thread, see `in_background`
 pub fn set_state_in_background(pipeline: &gst::Element, state: gst::State) {
     let pipeline = pipeline.clone();
@@ -2161,21 +2301,82 @@ pub fn in_background(f: impl FnOnce() + Send + 'static) {
     }
 }
 
-/// A section of the settings menu: a heading over a control, like the
-/// playback speed in GNOME's video player
-fn menu_section(title: &str, control: &impl IsA<gtk::Widget>) -> gtk::Box {
-    let section = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    section.set_margin_top(9);
-    section.set_margin_bottom(9);
-    section.set_margin_start(9);
-    section.set_margin_end(9);
-    let heading = gtk::Label::new(Some(title));
-    heading.set_halign(gtk::Align::Start);
-    heading.set_margin_start(6);
-    heading.add_css_class("heading");
-    section.append(&heading);
-    section.append(control);
-    section
+/// Moves the popover of `button` sideways so it stays inside the window;
+/// centred on a button near the edge, it would stick out
+fn keep_in_window(button: &gtk::MenuButton) {
+    const MARGIN: f32 = 8.;
+    let (Some(popover), Some(root)) = (button.popover(), button.root()) else {
+        return;
+    };
+    let Some(bounds) = button.compute_bounds(&root) else {
+        return;
+    };
+    let (_, width, _, _) = popover.measure(gtk::Orientation::Horizontal, -1);
+    let half = width as f32 / 2.;
+    let center = bounds.x() + bounds.width() / 2.;
+    let right = root.width() as f32 - MARGIN;
+    let mut shift = (right - (center + half)).min(0.);
+    shift += (MARGIN - (center + shift - half)).max(0.);
+    popover.set_offset(shift.round() as i32, -6);
+}
+
+/// A row of the settings menu that opens a list or goes back: the label,
+/// the current value dimmed, and a chevron pointing where it goes
+fn menu_row(label: &str, value: Option<&str>, back: bool) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    if back {
+        content.append(&gtk::Image::from_icon_name("glance-left-symbolic"));
+    }
+    let text = gtk::Label::new(Some(label));
+    text.set_xalign(0.);
+    text.set_hexpand(true);
+    content.append(&text);
+    if let Some(value) = value {
+        let value = gtk::Label::new(Some(value));
+        value.add_css_class("dim-label");
+        value.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        value.set_max_width_chars(12);
+        content.append(&value);
+        content.append(&gtk::Image::from_icon_name("glance-right-symbolic"));
+    }
+    let row = gtk::Button::new();
+    row.set_child(Some(&content));
+    row.add_css_class("flat");
+    row.add_css_class("menu-row");
+    row
+}
+
+/// A choice in a list of the settings menu, checked when chosen
+fn check_row(label: &str, chosen: bool) -> gtk::Button {
+    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    let check = gtk::Image::from_icon_name("check-plain-symbolic");
+    check.set_opacity(if chosen { 1. } else { 0. });
+    content.append(&check);
+    let text = gtk::Label::new(Some(label));
+    text.set_xalign(0.);
+    text.set_hexpand(true);
+    content.append(&text);
+    let row = gtk::Button::new();
+    row.set_child(Some(&content));
+    row.add_css_class("flat");
+    row.add_css_class("menu-row");
+    if chosen {
+        row.update_state(&[gtk::accessible::State::Checked(gtk::AccessibleTristate::True)]);
+    }
+    row
+}
+
+/// A row of the settings menu with a control at the end
+fn setting_row(title: &str, control: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    row.add_css_class("setting-row");
+    let label = gtk::Label::new(Some(title));
+    label.set_xalign(0.);
+    label.set_hexpand(true);
+    row.append(&label);
+    control.as_ref().set_valign(gtk::Align::Center);
+    row.append(control);
+    row
 }
 
 #[cfg(test)]
