@@ -1,6 +1,6 @@
 # Maintainer: Replexo <196697396+Replexo@users.noreply.github.com>
 pkgname=blick
-pkgver=1.2
+pkgver=1.3
 pkgrel=1
 conflicts=('glance' 'glance-viewer')
 replaces=('glance-viewer')
