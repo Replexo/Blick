@@ -829,20 +829,13 @@ impl LpImageView {
         if !imp.folder_strip.is_visible() {
             return;
         }
-        // On a video the strip stays at the bottom, under the player's
-        // controls, and shows and hides with them
+        // A video shows only the player, like a video player
         if let Some(video) = self.current_video() {
-            // Set once: the strip's height changes while thumbnails load,
-            // which would move the seek bar under the pointer
-            if video.bottom_inset() == 0 {
-                let (_, height, _, _) = imp.folder_strip.measure(gtk::Orientation::Vertical, -1);
-                video.set_bottom_inset(height);
-            }
             if let Some(source) = imp.strip_timeout.take() {
                 source.remove();
             }
-            imp.folder_strip.set_can_target(true);
-            self.fade_folder_strip(1.);
+            imp.folder_strip.set_can_target(false);
+            self.fade_folder_strip(0.);
             video.show_controls();
             return;
         }
@@ -929,23 +922,6 @@ impl LpImageView {
 
         // Optionally the next video plays when one ends
         if let Some(video) = page.video() {
-            // The folder strip shows and hides with the player's controls
-            video.add_hover_area(&self.imp().folder_strip_events);
-            video.connect_controls_shown(glib::clone!(
-                #[weak(rename_to = obj)]
-                self,
-                move |video, shown| {
-                    if !video.is_active() || !obj.imp().folder_strip.is_visible() {
-                        return;
-                    }
-                    let imp = obj.imp();
-                    if let Some(source) = imp.strip_timeout.take() {
-                        source.remove();
-                    }
-                    imp.folder_strip.set_can_target(shown);
-                    obj.fade_folder_strip(if shown { 1. } else { 0. });
-                }
-            ));
             video.connect_ended(glib::clone!(
                 #[weak(rename_to = obj)]
                 self,

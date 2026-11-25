@@ -48,6 +48,7 @@ use crate::util::root::ParentWindow;
 use crate::widgets::window::ActionPartGlobal;
 use crate::widgets::{
     LpDragOverlay, LpImage, LpImageView, LpPropertiesView, LpTextLayer, LpThumbnailStrip,
+    LpVideoPlayer,
 };
 
 /// Animation duration for showing overlay buttons in milliseconds
@@ -97,6 +98,10 @@ mod imp {
         pub(super) set_menu_button: TemplateChild<gtk::MenuButton>,
         #[template_child]
         pub(super) properties_view: TemplateChild<LpPropertiesView>,
+        #[template_child]
+        pub(super) properties_split_view: TemplateChild<adw::OverlaySplitView>,
+        #[template_child]
+        pub(super) properties_revealer: TemplateChild<gtk::Revealer>,
 
         #[template_child]
         pub(super) drag_overlay: TemplateChild<LpDragOverlay>,
@@ -124,6 +129,10 @@ mod imp {
         /// Live text of the current image
         pub(super) text_layer: glib::WeakRef<LpTextLayer>,
         pub(super) text_binding: RefCell<Option<glib::Binding>>,
+
+        /// The video whose controls the header fades with
+        pub(super) header_video: RefCell<Option<(glib::WeakRef<LpVideoPlayer>, glib::SignalHandlerId)>>,
+        pub(super) header_fade: OnceCell<adw::TimedAnimation>,
     }
 
     #[glib::object_subclass]
@@ -195,6 +204,28 @@ mod imp {
                 move |_| {
                     if let Some(text_layer) = obj.imp().text_layer.upgrade() {
                         text_layer.select_all();
+                    }
+                }
+            ));
+
+            // The sidebar closing itself, as when it overlays the image
+            self.properties_split_view.connect_show_sidebar_notify(glib::clone!(
+                #[weak]
+                obj,
+                move |split_view| {
+                    let imp = obj.imp();
+                    if !obj.is_video_page() && split_view.shows_sidebar() != imp.properties_button.is_active() {
+                        imp.properties_button.set_active(split_view.shows_sidebar());
+                    }
+                }
+            ));
+            // Hovering the header over a video shows its controls
+            self.headerbar_events.connect_motion(glib::clone!(
+                #[weak]
+                obj,
+                move |_, _, _| {
+                    if let Some(video) = obj.imp().image_view.current_video() {
+                        video.show_controls();
                     }
                 }
             ));
@@ -943,6 +974,8 @@ impl LpImageWindow {
         // Window title
         self.update_title();
 
+        self.update_video_header();
+
         // Live text, only read for the current image
         let text_layer = current_page.as_ref().map(|x| x.text_layer());
         let previous_layer = imp.text_layer.upgrade();
@@ -955,7 +988,7 @@ impl LpImageWindow {
             }
             imp.text_layer.set(text_layer.as_ref());
             imp.text_button.set_visible(false);
-            if let Some(text_layer) = &text_layer {
+            if let Some(text_layer) = text_layer.as_ref().filter(|_| !self.is_video_page()) {
                 text_layer.set_active(true);
                 let binding = text_layer
                     .bind_property("has-text", &*imp.text_button, "visible")
@@ -1002,15 +1035,92 @@ impl LpImageWindow {
         }
 
         imp.properties_button.set_sensitive(has_image);
+        self.update_properties_shown();
+    }
+
+    /// Whether the current page is a video, shown like a video player
+    pub fn is_video_page(&self) -> bool {
+        self.imp().image_view.current_video().is_some()
+    }
+
+    /// The properties show when asked for, but never next to a video
+    fn update_properties_shown(&self) {
+        let imp = self.imp();
+        let show = imp.properties_button.is_active() && !self.is_video_page();
+        imp.properties_split_view.set_show_sidebar(show);
+        imp.properties_revealer.set_reveal_child(show);
+    }
+
+    /// Over a video the header is see-through, has only the fullscreen,
+    /// edit and menu buttons, and fades with the player's controls
+    fn update_video_header(&self) {
+        let imp = self.imp();
+        let video = imp.image_view.current_video();
+
+        let same = imp
+            .header_video
+            .borrow()
+            .as_ref()
+            .and_then(|(weak, _)| weak.upgrade())
+            == video;
+        if !same {
+            if let Some((weak, handler)) = imp.header_video.take()
+                && let Some(old) = weak.upgrade()
+            {
+                old.disconnect(handler);
+            }
+            if let Some(video) = &video {
+                video.add_hover_area(&imp.headerbar_events);
+                let handler = video.connect_controls_shown(glib::clone!(
+                    #[weak(rename_to = obj)]
+                    self,
+                    move |_, shown| obj.fade_header(if shown { 1. } else { 0. })
+                ));
+                imp.header_video.replace(Some((video.downgrade(), handler)));
+            }
+        }
+
+        let is_video = video.is_some();
+        imp.properties_button.set_visible(!is_video);
+        if is_video {
+            imp.text_button.set_visible(false);
+        }
+        imp.headerbar.set_show_title(!is_video);
+        if is_video {
+            imp.headerbar.add_css_class("video-header");
+        } else {
+            imp.headerbar.remove_css_class("video-header");
+            self.fade_header(1.);
+        }
+        self.update_headerbar_style();
+        self.update_properties_shown();
+    }
+
+    fn fade_header(&self, to: f64) {
+        let imp = self.imp();
+        let animation = imp.header_fade.get_or_init(|| {
+            let target = adw::PropertyAnimationTarget::new(&*imp.headerbar, "opacity");
+            adw::TimedAnimation::new(&*imp.headerbar, 1., 1., 200, target)
+        });
+        imp.headerbar.set_can_target(to > 0.);
+        if (animation.value_to() - to).abs() < f64::EPSILON
+            && animation.state() == adw::AnimationState::Playing
+        {
+            return;
+        }
+        animation.set_value_from(imp.headerbar.opacity());
+        animation.set_value_to(to);
+        animation.play();
     }
 
     /// When the image-properties sidebar is displayed or hidden, we should
     /// update the "show-properties" setting.
     fn on_properties_button_toggled(&self) {
         let imp = self.imp();
+        self.update_properties_shown();
         // When no image is shown, we skip this update as the sidebar should always be
         // hidden. This can happen when deleting a picture.
-        if imp.image_view.current_page().is_none() {
+        if imp.image_view.current_page().is_none() || self.is_video_page() {
             return;
         }
         let settings = LpApplication::default().settings();
@@ -1100,8 +1210,9 @@ impl LpImageWindow {
     }
 
     fn is_content_extended_to_top(&self) -> bool {
-        self.try_window().is_some_and(|w| w.is_fullscreen())
-            && !self.imp().properties_button.is_active()
+        self.is_video_page()
+            || self.try_window().is_some_and(|w| w.is_fullscreen())
+                && !self.imp().properties_button.is_active()
     }
 
     fn update_accel_status(&self) {
@@ -1134,7 +1245,9 @@ impl LpImageWindow {
     fn update_header_opacity(&self) {
         let imp = self.imp();
 
-        if self.is_headerbar_flat() && self.is_showing_image() {
+        if self.is_video_page() {
+            // Follows the player's controls, see `update_video_header()`
+        } else if self.is_headerbar_flat() && self.is_showing_image() {
             // Bring headerbar opacity in sync with controls
             imp.headerbar.set_opacity(self.headerbar_opacity());
         } else {

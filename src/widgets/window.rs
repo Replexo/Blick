@@ -258,8 +258,6 @@ impl LpWindow {
     /// Window size for a video of `width` × `height`, as large as the video
     /// but within 60% of the display, and at least the smallest window size
     fn fit_to_display(&self, width: i32, height: i32) -> (i32, i32) {
-        // The header bar above the video
-        const CHROME: i32 = 47;
         let display = WidgetExt::display(self);
         let monitor = gtk::prelude::NativeExt::surface(self)
             .and_then(|surface| display.monitor_at_surface(&surface))
@@ -269,7 +267,7 @@ impl LpWindow {
                     .item(0)
                     .and_downcast::<gdk::Monitor>()
             });
-        let (max_width, max_height) = monitor.map_or((width, height + CHROME), |monitor| {
+        let (max_width, max_height) = monitor.map_or((width, height), |monitor| {
             let area = monitor.geometry();
             (
                 (area.width() as f64 * MAX_SCREEN_SHARE) as i32,
@@ -277,11 +275,11 @@ impl LpWindow {
             )
         });
         let scale = (max_width as f64 / width as f64)
-            .min((max_height - CHROME) as f64 / height as f64)
+            .min(max_height as f64 / height as f64)
             .min(1.);
         (
             ((width as f64 * scale).round() as i32).max(MIN_WIDTH),
-            ((height as f64 * scale).round() as i32 + CHROME).max(MIN_HEIGHT),
+            ((height as f64 * scale).round() as i32).max(MIN_HEIGHT),
         )
     }
 

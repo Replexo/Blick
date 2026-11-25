@@ -233,7 +233,6 @@
                   <object class="AdwOverlaySplitView" id="properties_split_view">
                     <property name="sidebar-position">end</property>
                     <property name="min-sidebar-width">255</property>
-                    <property name="show-sidebar" bind-source="properties_button" bind-property="active" bind-flags="bidirectional|sync-create" />
                     <property name="sidebar">
                       <object class="AdwLayoutSlot">
                         <property name="id">properties</property>
@@ -260,9 +259,8 @@
                       </object>
                     </child>
                     <child>
-                      <object class="GtkRevealer">
+                      <object class="GtkRevealer" id="properties_revealer">
                         <property name="transition-type">slide-up</property>
-                        <property name="reveal-child" bind-source="properties_button" bind-property="active" bind-flags="bidirectional|sync-create" />
                         <style>
                           <class name="bottom-properties" />
                         </style>

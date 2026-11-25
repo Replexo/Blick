@@ -30,7 +30,9 @@ impl LpImageWindow {
             self.image_view().controls_box_start().set_opacity(opacity);
             self.image_view().controls_box_end().set_opacity(opacity);
 
-            if self.is_headerbar_flat() && window.is_fullscreen() {
+            // Over a video the header fades with the player's controls
+            if self.is_video_page() {
+            } else if self.is_headerbar_flat() && window.is_fullscreen() {
                 self.headerbar().set_opacity(opacity);
             } else {
                 self.headerbar().set_opacity(1.);

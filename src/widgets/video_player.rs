@@ -232,7 +232,7 @@ mod imp {
             // Laid out like GNOME's video player: skip and play buttons in
             // the middle, title, sound, settings, seek bar and times at the
             // bottom, over a shade
-            self.play_button.set_icon_name("glance-play-symbolic");
+            self.play_button.set_icon_name("media-playback-start-symbolic");
             self.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Play"))]);
             self.play_button.set_widget_name("play-button");
             self.play_button.set_margin_start(12);
@@ -263,6 +263,8 @@ mod imp {
             let controls_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             controls_box.set_halign(gtk::Align::Center);
             controls_box.set_valign(gtk::Align::Center);
+            // Centred below the header, as in GNOME's video player
+            controls_box.set_margin_top(48);
             controls_box.append(&backwards);
             controls_box.append(&self.play_button);
             controls_box.append(&forwards);
@@ -1929,7 +1931,7 @@ impl LpVideoPlayer {
                 image.zoom_best_fit();
             }
             imp.play_button
-                .set_icon_name("glance-pause-symbolic");
+                .set_icon_name("media-playback-pause-symbolic");
             imp.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Pause"))]);
             imp.inhibit();
             if imp.tick.borrow().is_none() {
@@ -1950,7 +1952,7 @@ impl LpVideoPlayer {
             }
         } else {
             imp.play_button
-                .set_icon_name("glance-play-symbolic");
+                .set_icon_name("media-playback-start-symbolic");
             imp.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Play"))]);
             imp.uninhibit();
             if let Some(source) = imp.tick.take() {
@@ -2157,12 +2159,15 @@ impl LpVideoPlayer {
         );
     }
 
-    pub fn connect_controls_shown<F: Fn(&Self, bool) + 'static>(&self, f: F) {
+    pub fn connect_controls_shown<F: Fn(&Self, bool) + 'static>(
+        &self,
+        f: F,
+    ) -> glib::SignalHandlerId {
         self.connect_closure(
             "controls-shown",
             false,
             glib::closure_local!(move |obj: &Self, shown: bool| f(obj, shown)),
-        );
+        )
     }
 
     /// Shows the controls, as moving the pointer does
@@ -2173,7 +2178,10 @@ impl LpVideoPlayer {
     /// The controls stay while the pointer rests on what `motion` watches,
     /// like the folder strip
     pub fn add_hover_area(&self, motion: &gtk::EventControllerMotion) {
-        self.imp().hover_areas.borrow_mut().push(motion.clone());
+        let mut areas = self.imp().hover_areas.borrow_mut();
+        if !areas.contains(motion) {
+            areas.push(motion.clone());
+        }
     }
 
     pub fn connect_ended<F: Fn(&Self) + 'static>(&self, f: F) {
