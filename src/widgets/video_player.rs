@@ -45,8 +45,8 @@ const HIDE_DELAY: Duration = Duration::from_secs(3);
 const SPEEDS: [f64; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 /// Width of the frame preview over the seek bar
 const PREVIEW_WIDTH: i32 = 112;
-/// Space between the controls card and the preview or a menu above it
-const MENU_GAP: i32 = 12;
+/// Space between the seek bar and the frame preview above it
+const PREVIEW_GAP: i32 = 4;
 /// Positions closer than this to the start or end are not remembered
 const RESUME_MARGIN: f64 = 5.;
 /// Subtitle files that are picked up next to a video
@@ -73,16 +73,18 @@ mod imp {
 
         pub(super) picture: gtk::Picture,
         pub(super) controls: gtk::Revealer,
-        /// Settings and sound in the top right corner
-        pub(super) corner: gtk::Revealer,
+        pub(super) title_label: gtk::Label,
         pub(super) sound_button: gtk::MenuButton,
+        /// The end time shows the time left instead of the length
+        pub(super) show_remaining: Cell<bool>,
+        /// Tell if the pointer rests on the buttons or the bottom bar
+        pub(super) hover_areas: RefCell<Vec<gtk::EventControllerMotion>>,
         /// Pointer movement anywhere on the page, also over a paused frame
         pub(super) page_motion: RefCell<Option<gtk::EventControllerMotion>>,
         /// Where the pointer was, as GTK also reports motion when only the
         /// widgets under it change
         pub(super) last_pointer: Cell<Option<(f64, f64)>>,
-        /// The controls fade by their opacity, so the frosted glass behind
-        /// them fades too
+        /// The controls fade by their opacity
         pub(super) controls_shown: Cell<bool>,
         pub(super) fades: RefCell<Vec<adw::TimedAnimation>>,
         pub(super) play_button: gtk::Button,
@@ -90,7 +92,6 @@ mod imp {
         pub(super) duration_label: gtk::Label,
         pub(super) seek: gtk::Scale,
         pub(super) fullscreen_button: RefCell<Option<gtk::Button>>,
-        pub(super) frost: RefCell<Option<crate::widgets::edit::LpFrost>>,
         pub(super) tracks_button: RefCell<Option<gtk::MenuButton>>,
         pub(super) volume_scale: gtk::Scale,
         pub(super) mute_button: gtk::ToggleButton,
@@ -134,8 +135,8 @@ mod imp {
         /// Position and playing state to restore after reloading
         pub(super) restore: Cell<Option<(gst::ClockTime, bool)>>,
         /// Pages of the settings menu
-        pub(super) settings_stack: gtk::Stack,
-        pub(super) delay_row: RefCell<Option<gtk::Box>>,
+        pub(super) subtitle_tracks: gio::Menu,
+        pub(super) audio_tracks: gio::Menu,
         pub(super) delay_label: gtk::Label,
     }
 
@@ -195,24 +196,59 @@ mod imp {
             self.picture.set_vexpand(true);
             self.picture.add_css_class("video");
 
+            // Laid out like GNOME's video player: skip and play buttons in
+            // the middle, title, sound, settings, seek bar and times at the
+            // bottom, over a shade
             self.play_button.set_icon_name("glance-play-symbolic");
             self.play_button.update_property(&[gtk::accessible::Property::Label(&gettext("Play"))]);
-            self.play_button.set_valign(gtk::Align::Center);
+            self.play_button.set_widget_name("play-button");
+            self.play_button.set_margin_start(12);
+            self.play_button.set_margin_end(12);
             self.play_button.connect_clicked(clone!(
                 #[weak]
                 obj,
                 move |_| obj.toggle_playing()
             ));
 
-            for label in [&self.position_label, &self.duration_label] {
-                label.add_css_class("numeric");
-                label.add_css_class("caption");
-                label.set_label("0:00");
-            }
+            let backwards = gtk::Button::from_icon_name("glance-skip-back-symbolic");
+            backwards.set_widget_name("backwards-button");
+            backwards.update_property(&[gtk::accessible::Property::Label(&gettext("Go Back 10 Seconds"))]);
+            backwards.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.skip(false)
+            ));
+            let forwards = gtk::Button::from_icon_name("glance-skip-forward-symbolic");
+            forwards.set_widget_name("forwards-button");
+            forwards.update_property(&[gtk::accessible::Property::Label(&gettext("Go Forward 10 Seconds"))]);
+            forwards.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| obj.skip(true)
+            ));
+
+            let controls_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            controls_box.set_halign(gtk::Align::Center);
+            controls_box.set_valign(gtk::Align::Center);
+            controls_box.set_vexpand(true);
+            controls_box.set_margin_top(48);
+            controls_box.append(&backwards);
+            controls_box.append(&self.play_button);
+            controls_box.append(&forwards);
+
+            self.title_label.set_hexpand(true);
+            self.title_label.set_halign(gtk::Align::Start);
+            self.title_label.set_margin_start(12);
+            self.title_label.set_margin_end(12);
+            self.title_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            self.title_label.add_css_class("title-4");
+            self.title_label.add_css_class("overlaid");
 
             self.seek.set_hexpand(true);
             self.seek.set_draw_value(false);
             self.seek.set_range(0., 1.);
+            self.seek.add_css_class("highlighted");
+            self.seek.add_css_class("overlaid");
             self.seek.update_property(&[gtk::accessible::Property::Label(&gettext(
                 "Position",
             ))]);
@@ -232,13 +268,48 @@ mod imp {
 
             self.setup_preview();
 
-            // Volume: a vertical slider with the mute toggle under it
-            self.volume_scale.set_orientation(gtk::Orientation::Vertical);
-            self.volume_scale.set_inverted(true);
+            // Times under the seek bar; the end one switches between the
+            // length and the time left
+            self.position_label.set_hexpand(true);
+            self.position_label.set_halign(gtk::Align::Start);
+            self.position_label.set_margin_start(12);
+            self.position_label.set_margin_end(3);
+            let end_button = gtk::Button::new();
+            end_button.set_child(Some(&self.duration_label));
+            end_button.set_widget_name("end-timestamp-button");
+            end_button.set_hexpand(true);
+            end_button.set_halign(gtk::Align::End);
+            end_button.set_margin_start(3);
+            end_button.update_property(&[gtk::accessible::Property::Label(&gettext(
+                "Toggle Duration/Remaining",
+            ))]);
+            end_button.connect_clicked(clone!(
+                #[weak]
+                obj,
+                move |_| {
+                    let imp = obj.imp();
+                    imp.show_remaining.set(!imp.show_remaining.get());
+                    imp.update_position();
+                }
+            ));
+            for widget in [self.position_label.upcast_ref::<gtk::Widget>(), end_button.upcast_ref()] {
+                widget.add_css_class("caption-heading");
+                widget.add_css_class("numeric");
+                widget.add_css_class("timestamp");
+                widget.add_css_class("overlaid");
+            }
+            self.position_label.set_label("0:00");
+            self.duration_label.set_label("0:00");
+            let timestamp_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            timestamp_box.set_valign(gtk::Align::End);
+            timestamp_box.set_margin_bottom(3);
+            timestamp_box.append(&self.position_label);
+            timestamp_box.append(&end_button);
+
+            // Volume: mute toggle and a slider in a popover
+            self.volume_scale.set_hexpand(true);
             self.volume_scale.set_range(0., 1.);
-            self.volume_scale.set_increments(0.05, 0.2);
-            self.volume_scale.set_size_request(-1, 120);
-            self.volume_scale.set_halign(gtk::Align::Center);
+            self.volume_scale.set_increments(0.2, 0.2);
             self.volume_scale.set_value(VOLUME.get());
             self.volume_scale
                 .update_property(&[gtk::accessible::Property::Label(&gettext("Volume"))]);
@@ -251,11 +322,12 @@ mod imp {
                 }
             ));
 
-            self.mute_button.set_icon_name("glance-volume-high-symbolic");
-            self.mute_button.update_property(&[gtk::accessible::Property::Label(&gettext("Mute"))]);
+            self.mute_button.set_icon_name("glance-volume-muted-symbolic");
+            self.mute_button
+                .update_property(&[gtk::accessible::Property::Label(&gettext("Mute/Unmute"))]);
             self.mute_button.set_active(MUTED.get());
-            self.mute_button.add_css_class("flat");
             self.mute_button.add_css_class("circular");
+            self.mute_button.add_css_class("flat");
             self.mute_button.connect_toggled(clone!(
                 #[weak]
                 obj,
@@ -265,16 +337,22 @@ mod imp {
                 }
             ));
 
-            let volume_box = gtk::Box::new(gtk::Orientation::Vertical, 4);
-            volume_box.set_margin_top(4);
-            volume_box.append(&self.volume_scale);
+            let volume_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            volume_box.set_margin_top(6);
+            volume_box.set_margin_bottom(6);
+            volume_box.set_margin_start(6);
+            volume_box.set_margin_end(6);
             volume_box.append(&self.mute_button);
+            volume_box.append(&self.volume_scale);
             let volume_popover = gtk::Popover::new();
+            volume_popover.set_width_request(250);
             volume_popover.set_child(Some(&volume_box));
             self.sound_button.set_icon_name("glance-volume-high-symbolic");
+            self.sound_button.set_valign(gtk::Align::Center);
+            self.sound_button.set_direction(gtk::ArrowType::Up);
             self.sound_button.set_popover(Some(&volume_popover));
             self.sound_button
-                .update_property(&[gtk::accessible::Property::Label(&gettext("Volume"))]);
+                .update_property(&[gtk::accessible::Property::Label(&gettext("Adjust Volume"))]);
 
             // Speed and looping, in the settings menu
             let speed = gio::SimpleAction::new_stateful(
@@ -309,141 +387,93 @@ mod imp {
             ));
             self.actions.add_action(&looping);
 
-            let fullscreen = gtk::Button::from_icon_name("glance-fullscreen-symbolic");
-            fullscreen.update_property(&[gtk::accessible::Property::Label(&gettext("Fullscreen"))]);
-            fullscreen.connect_clicked(|button| {
-                let _ = button.activate_action("win.toggle-fullscreen", None);
-            });
-            self.fullscreen_button.replace(Some(fullscreen.clone()));
-
             let settings = self.build_tracks_button();
             self.tracks_button.replace(Some(settings.clone()));
 
             for button in [
-                self.play_button.upcast_ref::<gtk::Widget>(),
-                fullscreen.upcast_ref(),
-                settings.upcast_ref(),
+                backwards.upcast_ref::<gtk::Widget>(),
+                self.play_button.upcast_ref(),
+                forwards.upcast_ref(),
                 self.sound_button.upcast_ref(),
+                settings.upcast_ref(),
             ] {
-                button.add_css_class("flat");
                 button.add_css_class("circular");
+                button.add_css_class("highlighted");
+                button.add_css_class("overlaid");
                 button.set_valign(gtk::Align::Center);
             }
+            end_button.add_css_class("highlighted");
 
-            // One row: play, time, seek bar, time left, fullscreen
-            let bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-            bar.add_css_class("video-controls");
-            bar.set_margin_start(12);
-            bar.set_margin_end(12);
-            bar.set_margin_bottom(12);
-            bar.append(&self.play_button);
-            bar.append(&self.position_label);
-            bar.append(&self.seek);
-            bar.append(&self.duration_label);
-            bar.append(&fullscreen);
-            bar.insert_action_group("video", Some(&self.actions));
+            let header = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            header.set_widget_name("bottom-overlay-box");
+            header.set_valign(gtk::Align::End);
+            header.append(&self.title_label);
+            header.append(&self.sound_button);
+            header.append(&settings);
+
+            let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            bottom.append(&header);
+            bottom.append(&self.seek);
+            bottom.append(&timestamp_box);
+
+            let toolbar = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            toolbar.set_margin_start(12);
+            toolbar.set_margin_end(12);
+            toolbar.set_margin_bottom(12);
+            toolbar.append(&controls_box);
+            toolbar.append(&bottom);
+            toolbar.insert_action_group("video", Some(&self.actions));
 
             let clamp = adw::Clamp::new();
-            clamp.set_maximum_size(560);
-            clamp.set_child(Some(&bar));
+            clamp.set_maximum_size(1920);
+            clamp.set_tightening_threshold(1920);
+            clamp.set_child(Some(&toolbar));
+            clamp.add_css_class("shade");
+            clamp.add_css_class("video-player");
 
             self.controls.set_child(Some(&clamp));
             self.controls
                 .set_transition_type(gtk::RevealerTransitionType::None);
-            self.controls.set_valign(gtk::Align::End);
             self.controls.set_reveal_child(true);
             self.controls.set_can_focus(false);
-
-            // Settings and sound in the top right corner, like the editor's
-            // undo and redo
-            let corner = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-            corner.add_css_class("video-controls");
-            corner.add_css_class("video-corner");
-            corner.set_margin_top(12);
-            corner.set_margin_end(12);
-            corner.append(&settings);
-            corner.append(&self.sound_button);
-            corner.insert_action_group("video", Some(&self.actions));
-
-            self.corner.set_child(Some(&corner));
-            self.corner
-                .set_transition_type(gtk::RevealerTransitionType::None);
-            self.corner.set_halign(gtk::Align::End);
-            self.corner.set_valign(gtk::Align::Start);
-            self.corner.set_reveal_child(true);
-            self.corner.set_can_focus(false);
             self.controls_shown.set(true);
-            for revealer in [&self.controls, &self.corner] {
-                let target = adw::PropertyAnimationTarget::new(revealer, "opacity");
-                let fade = adw::TimedAnimation::new(revealer, 1., 1., 200, target);
-                // The frosted glass redraws on layout, which a fade doesn't do
-                fade.connect_value_notify(clone!(
+            let target = adw::PropertyAnimationTarget::new(&self.controls, "opacity");
+            self.fades
+                .borrow_mut()
+                .push(adw::TimedAnimation::new(&self.controls, 1., 1., 200, target));
+
+            for button in [&settings, &self.sound_button] {
+                button.connect_active_notify(clone!(
                     #[weak]
                     obj,
-                    move |_| {
-                        if let Some(frost) = obj.imp().frost.borrow().as_ref() {
-                            frost.queue_draw();
+                    move |button| {
+                        if !button.is_active() {
+                            obj.imp().schedule_hide();
                         }
                     }
                 ));
-                self.fades.borrow_mut().push(fade);
-            }
-
-            // Menus look like the cards and open below the corner, not over it
-            for button in [&settings, &self.sound_button] {
-                if let Some(popover) = button.popover() {
-                    popover.add_css_class("video-menu");
-                    popover.set_has_arrow(false);
-                    let place = clone!(
-                        #[weak]
-                        corner,
-                        #[weak]
-                        button,
-                        #[weak]
-                        popover,
-                        move || {
-                            let bottom = button
-                                .compute_point(
-                                    &corner,
-                                    &graphene::Point::new(0., button.height() as f32),
-                                )
-                                .map_or(0, |p| p.y() as i32);
-                            popover.set_offset(0, corner.height() - bottom + MENU_GAP);
-                        }
-                    );
-                    // Placed before it opens, and again once it shows
-                    button.connect_active_notify(clone!(
-                        #[strong]
-                        place,
-                        #[weak]
-                        obj,
-                        move |button| {
-                            if button.is_active() {
-                                place();
-                            } else {
-                                obj.imp().schedule_hide();
-                            }
-                        }
-                    ));
-                    popover.connect_show(move |_| place());
-                }
             }
 
             // Moving the pointer on the page shows the controls, see `new()`;
-            // these tell if the pointer rests on them
-            for widget in [&self.controls, &self.corner] {
-                widget.add_controller(gtk::EventControllerMotion::new());
+            // they stay while it rests on the buttons or the bottom bar
+            for widget in [controls_box.upcast_ref::<gtk::Widget>(), bottom.upcast_ref()] {
+                let motion = gtk::EventControllerMotion::new();
+                widget.add_controller(motion.clone());
+                self.hover_areas.borrow_mut().push(motion);
             }
 
             // Click plays and pauses, a double click toggles fullscreen and
-            // a double tap on the left or right third skips
-            let click = gtk::GestureClick::new();
-            click.connect_pressed(clone!(
-                #[weak]
-                obj,
-                move |gesture, n_press, x, _| obj.imp().clicked(gesture, n_press, x)
-            ));
-            self.picture.add_controller(click);
+            // a double tap on the left or right third skips. The shade gets
+            // the clicks while the controls show.
+            for widget in [self.picture.upcast_ref::<gtk::Widget>(), clamp.upcast_ref()] {
+                let click = gtk::GestureClick::new();
+                click.connect_pressed(clone!(
+                    #[weak]
+                    obj,
+                    move |gesture, n_press, x, _| obj.imp().clicked(gesture, n_press, x)
+                ));
+                widget.add_controller(click);
+            }
 
             self.setup_shortcuts();
         }
@@ -515,15 +545,9 @@ mod imp {
                 let max = (overlay.width() - width - 8).max(8);
                 let start = (point.x() as i32 - width / 2).clamp(8, max);
                 self.preview.set_margin_start(start);
-                // A gap above the controls card
-                let card_top = self
-                    .controls
-                    .child()
-                    .and_then(|clamp| clamp.first_child())
-                    .and_then(|card| card.compute_point(&overlay, &graphene::Point::new(0., 0.)))
-                    .map_or(point.y(), |p| p.y());
+                // Above the seek bar
                 self.preview
-                    .set_margin_bottom(overlay.height() - card_top as i32 + MENU_GAP);
+                    .set_margin_bottom(overlay.height() - point.y() as i32 + PREVIEW_GAP);
             }
             self.preview.set_visible(true);
 
@@ -634,13 +658,8 @@ mod imp {
             self.actions.add_action(&open);
 
             // Subtitle delay, in steps of 0.1 s
-            let delay_box = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-            delay_box.add_css_class("video-menu-item");
-            let delay_title = gtk::Label::new(Some(&gettext("Delay")));
-            delay_title.set_hexpand(true);
-            delay_title.set_xalign(0.);
             self.delay_label.add_css_class("numeric");
-            self.delay_label.set_width_chars(6);
+            self.delay_label.set_hexpand(true);
             let earlier = gtk::Button::from_icon_name("minus-large-symbolic");
             earlier.update_property(&[gtk::accessible::Property::Label(&gettext("Show Subtitles Earlier"))]);
             let later = gtk::Button::from_icon_name("plus-large-symbolic");
@@ -648,7 +667,6 @@ mod imp {
             for button in [&earlier, &later] {
                 button.add_css_class("flat");
                 button.add_css_class("circular");
-                button.add_css_class("video-menu-small");
             }
             earlier.connect_clicked(clone!(
                 #[weak]
@@ -660,204 +678,99 @@ mod imp {
                 obj,
                 move |_| obj.imp().shift_subtitles(100)
             ));
-            delay_box.append(&delay_title);
-            delay_box.append(&earlier);
-            delay_box.append(&self.delay_label);
-            delay_box.append(&later);
+            let delay_buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            delay_buttons.append(&earlier);
+            delay_buttons.append(&self.delay_label);
+            delay_buttons.append(&later);
             self.update_delay_label(0);
-            self.delay_row.replace(Some(delay_box));
+            let delay_row = menu_section(&gettext("Subtitle Delay"), &delay_buttons);
 
-            // A small menu of our own: GTK's menus are large and put the
-            // submenu arrows on the far side
-            self.settings_stack
-                .set_transition_type(gtk::StackTransitionType::SlideLeftRight);
-            self.settings_stack.set_transition_duration(150);
-            self.settings_stack.set_vhomogeneous(false);
-            self.settings_stack.set_hhomogeneous(false);
-            self.settings_stack.set_interpolate_size(true);
-            let popover = gtk::Popover::new();
-            popover.set_child(Some(&self.settings_stack));
-            popover.connect_show(clone!(
+            // Subtitle size, like the speed row
+            let size_group = adw::ToggleGroup::new();
+            size_group.set_homogeneous(true);
+            size_group.add_css_class("round");
+            size_group.add_css_class("flat");
+            for (name, label) in [
+                ("small", gettext("Small")),
+                ("medium", gettext("Medium")),
+                ("large", gettext("Large")),
+            ] {
+                let toggle = adw::Toggle::new();
+                toggle.set_name(Some(name));
+                toggle.set_label(Some(&label));
+                size_group.add(toggle);
+            }
+            size_group.set_active_name(Some("medium"));
+            size_group.connect_active_name_notify(clone!(
                 #[weak]
                 obj,
-                move |_| {
-                    let imp = obj.imp();
-                    imp.fill_settings();
-                    imp.settings_stack
-                        .set_visible_child_full("main", gtk::StackTransitionType::None);
+                move |group| {
+                    if let Some(name) = group.active_name() {
+                        obj.imp().actions.activate_action("subtitle-size", Some(&name.to_variant()));
+                    }
                 }
             ));
+            let size_row = menu_section(&gettext("Subtitle Size"), &size_group);
+
+            let speed_group = adw::ToggleGroup::new();
+            speed_group.set_homogeneous(true);
+            speed_group.add_css_class("round");
+            speed_group.add_css_class("flat");
+            for rate in SPEEDS {
+                let toggle = adw::Toggle::new();
+                toggle.set_name(Some(&rate.to_string()));
+                toggle.set_label(Some(&speed_label(rate)));
+                speed_group.add(toggle);
+            }
+            speed_group.set_active_name(Some("1"));
+            speed_group.connect_active_name_notify(clone!(
+                #[weak]
+                obj,
+                move |group| {
+                    if let Some(name) = group.active_name() {
+                        obj.imp().actions.activate_action("speed", Some(&name.to_variant()));
+                    }
+                }
+            ));
+            let speed_row = menu_section(&gettext("Playback Speed"), &speed_group);
+
+            // The menu itself; the tracks fill the submenus as they appear
+            let custom = |id: &str| {
+                let item = gio::MenuItem::new(None, None);
+                item.set_attribute_value("custom", Some(&id.to_variant()));
+                item
+            };
+            let subtitle_extra = gio::Menu::new();
+            subtitle_extra.append_item(&custom("size"));
+            subtitle_extra.append_item(&custom("delay"));
+            let subtitles = gio::Menu::new();
+            subtitles.append_section(None, &self.subtitle_tracks);
+            subtitles.append_section(None, &subtitle_extra);
+
+            let tracks = gio::Menu::new();
+            tracks.append_submenu(Some(&gettext("_Language")), &self.audio_tracks);
+            tracks.append_submenu(Some(&gettext("_Subtitles")), &subtitles);
+            let repeat = gio::Menu::new();
+            repeat.append(Some(&gettext("_Repeat")), Some("video.loop"));
+            let speed = gio::Menu::new();
+            speed.append_item(&custom("speed"));
+            let menu = gio::Menu::new();
+            menu.append_section(None, &tracks);
+            menu.append_section(None, &repeat);
+            menu.append_section(None, &speed);
+
+            let popover = gtk::PopoverMenu::from_model_full(&menu, gtk::PopoverMenuFlags::NESTED);
+            popover.add_child(&size_row, "size");
+            popover.add_child(&delay_row, "delay");
+            popover.add_child(&speed_row, "speed");
             let button = gtk::MenuButton::new();
             button.set_icon_name("glance-settings-symbolic");
+            button.set_halign(gtk::Align::End);
+            button.set_direction(gtk::ArrowType::Up);
             button.set_popover(Some(&popover));
             button.update_property(&[gtk::accessible::Property::Label(&gettext("Settings"))]);
+            self.update_tracks_menu();
             button
-        }
-
-        /// Rebuilds the settings menu's pages with the current choices
-        fn fill_settings(&self) {
-            let obj = self.obj();
-            let stack = &self.settings_stack;
-            while let Some(child) = stack.first_child() {
-                stack.remove(&child);
-            }
-            if let Some(delay) = self.delay_row.borrow().as_ref()
-                && let Some(parent) = delay.parent().and_downcast::<gtk::Box>()
-            {
-                parent.remove(delay);
-            }
-
-            let state = |name: &str| {
-                self.actions
-                    .lookup_action(name)
-                    .and_then(|action| action.state())
-                    .and_then(|state| state.get::<String>())
-                    .unwrap_or_default()
-            };
-            let popdown = clone!(
-                #[weak]
-                stack,
-                move || {
-                    if let Some(popover) = stack.ancestor(gtk::Popover::static_type()) {
-                        popover.downcast::<gtk::Popover>().unwrap().popdown();
-                    }
-                }
-            );
-            // A row that picks `target` for `action` and closes the menu
-            let choice = |label: &str, action: &'static str, target: String, chosen: bool| {
-                let row = menu_row(label, chosen.then_some("check-plain-symbolic"), None);
-                row.connect_clicked(clone!(
-                    #[weak]
-                    obj,
-                    #[strong]
-                    popdown,
-                    move |_| {
-                        obj.imp().actions.activate_action(action, Some(&target.to_variant()));
-                        popdown();
-                    }
-                ));
-                row
-            };
-            let open_page = |label: &str, page: &'static str| {
-                let row = menu_row(label, Some("glance-left-symbolic"), None);
-                row.connect_clicked(clone!(
-                    #[weak]
-                    stack,
-                    move |_| stack.set_visible_child_name(page)
-                ));
-                row
-            };
-            let new_page = |title: &str, name: &str| {
-                let page = gtk::Box::new(gtk::Orientation::Vertical, 0);
-                let back = menu_row(title, None, Some("glance-right-symbolic"));
-                back.add_css_class("heading");
-                back.connect_clicked(clone!(
-                    #[weak]
-                    stack,
-                    move |_| stack.set_visible_child_name("main")
-                ));
-                page.append(&back);
-                page.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-                stack.add_named(&page, Some(name));
-                page
-            };
-
-            let main = gtk::Box::new(gtk::Orientation::Vertical, 0);
-            main.append(&open_page(&gettext("Subtitles"), "subtitles"));
-            let audio_tracks = self.stream_ids(gst::StreamType::AUDIO);
-            if audio_tracks.len() > 1 {
-                main.append(&open_page(&gettext("Audio"), "audio"));
-            }
-            main.append(&open_page(&gettext("Speed"), "speed"));
-            let looping = menu_row(
-                &gettext("Loop"),
-                self.looping.get().then_some("check-plain-symbolic"),
-                None,
-            );
-            looping.connect_clicked(clone!(
-                #[weak]
-                obj,
-                #[strong]
-                popdown,
-                move |_| {
-                    obj.imp().actions.activate_action("loop", None);
-                    popdown();
-                }
-            ));
-            main.append(&looping);
-            stack.add_named(&main, Some("main"));
-
-            // Subtitles: tracks, a file, size and delay
-            let page = new_page(&gettext("Subtitles"), "subtitles");
-            let current = state("subtitle");
-            page.append(&choice(&gettext("Off"), "subtitle", String::new(), current.is_empty()));
-            for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
-                let chosen = id == current;
-                page.append(&choice(&label, "subtitle", id, chosen));
-            }
-            let open = menu_row(&gettext("Open Subtitles…"), None, None);
-            open.connect_clicked(clone!(
-                #[weak]
-                obj,
-                #[strong]
-                popdown,
-                move |_| {
-                    popdown();
-                    obj.imp().actions.activate_action("open-subtitles", None);
-                }
-            ));
-            page.append(&open);
-            page.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-
-            let size_row = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-            size_row.add_css_class("video-menu-item");
-            let size_title = gtk::Label::new(Some(&gettext("Size")));
-            size_title.set_hexpand(true);
-            size_title.set_xalign(0.);
-            size_row.append(&size_title);
-            let sizes = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            sizes.add_css_class("linked");
-            let current = state("subtitle-size");
-            let mut group: Option<gtk::ToggleButton> = None;
-            // Translators: Small, medium and large subtitles
-            for (name, label) in [("small", gettext("S")), ("medium", gettext("M")), ("large", gettext("L"))] {
-                let toggle = gtk::ToggleButton::with_label(&label);
-                toggle.add_css_class("video-menu-small");
-                toggle.set_group(group.as_ref());
-                toggle.set_active(name == current);
-                toggle.connect_toggled(clone!(
-                    #[weak]
-                    obj,
-                    move |toggle| {
-                        if toggle.is_active() {
-                            obj.imp().actions.activate_action("subtitle-size", Some(&name.to_variant()));
-                        }
-                    }
-                ));
-                sizes.append(&toggle);
-                group.get_or_insert(toggle);
-            }
-            size_row.append(&sizes);
-            page.append(&size_row);
-            if let Some(delay) = self.delay_row.borrow().as_ref() {
-                page.append(delay);
-            }
-
-            if audio_tracks.len() > 1 {
-                let page = new_page(&gettext("Audio"), "audio");
-                let current = state("audio");
-                for (id, label) in audio_tracks {
-                    let chosen = id == current;
-                    page.append(&choice(&label, "audio", id, chosen));
-                }
-            }
-
-            let page = new_page(&gettext("Speed"), "speed");
-            let current = state("speed").parse::<f64>().unwrap_or(1.);
-            for rate in SPEEDS {
-                let chosen = (rate - current).abs() < 0.01;
-                page.append(&choice(&speed_label(rate), "speed", rate.to_string(), chosen));
-            }
         }
 
         /// Stream ids of `stream_type` with a readable name each
@@ -875,8 +788,27 @@ mod imp {
                 .collect()
         }
 
-        /// Shows the chosen tracks, also in an open settings menu
+        /// Fills the language and subtitles submenus with the tracks
         pub(super) fn update_tracks_menu(&self) {
+            let subtitles = &self.subtitle_tracks;
+            subtitles.remove_all();
+            subtitles.append(Some(&gettext("None")), Some("video.subtitle::"));
+            for (id, label) in self.stream_ids(gst::StreamType::TEXT) {
+                let item = gio::MenuItem::new(Some(&label), None);
+                item.set_action_and_target_value(Some("video.subtitle"), Some(&id.to_variant()));
+                subtitles.append_item(&item);
+            }
+            subtitles.append(Some(&gettext("_Add Subtitle File…")), Some("video.open-subtitles"));
+
+            let audio = &self.audio_tracks;
+            audio.remove_all();
+            for (id, label) in self.stream_ids(gst::StreamType::AUDIO) {
+                let item = gio::MenuItem::new(Some(&label), None);
+                item.set_action_and_target_value(Some("video.audio"), Some(&id.to_variant()));
+                audio.append_item(&item);
+            }
+
+            // Show the chosen tracks
             if let Some(action) = self.actions.lookup_action("subtitle") {
                 let id = self.text_stream.borrow().clone().unwrap_or_default();
                 action.change_state(&id.to_variant());
@@ -884,14 +816,6 @@ mod imp {
             if let Some(action) = self.actions.lookup_action("audio") {
                 let id = self.audio_stream.borrow().clone().unwrap_or_default();
                 action.change_state(&id.to_variant());
-            }
-            if self.settings_stack.is_mapped() {
-                let page = self.settings_stack.visible_child_name();
-                self.fill_settings();
-                if let Some(page) = page {
-                    self.settings_stack
-                        .set_visible_child_full(&page, gtk::StackTransitionType::None);
-                }
             }
         }
 
@@ -1057,7 +981,6 @@ mod imp {
                 return;
             }
             self.controls.set_can_target(shown);
-            self.corner.set_can_target(shown);
             let to = if shown { 1. } else { 0. };
             for fade in self.fades.borrow().iter() {
                 let from = fade.widget().opacity();
@@ -1080,14 +1003,11 @@ mod imp {
                     move || {
                         let imp = obj.imp();
                         imp.hide_timeout.take();
-                        let over_controls = [&imp.controls, &imp.corner].iter().any(|revealer| {
-                            revealer
-                                .observe_controllers()
-                                .iter::<glib::Object>()
-                                .flatten()
-                                .filter_map(|c| c.downcast::<gtk::EventControllerMotion>().ok())
-                                .any(|motion| motion.contains_pointer())
-                        });
+                        let over_controls = imp
+                            .hover_areas
+                            .borrow()
+                            .iter()
+                            .any(|motion| motion.contains_pointer());
                         let menu_open = imp.sound_button.is_active()
                             || imp
                                 .tracks_button
@@ -1140,11 +1060,15 @@ mod imp {
             };
             self.position_label.set_label(&format_time(position));
             if let Some(duration) = self.duration.get() {
-                // Translators: Time left in a video, {} is a time like 1:05
-                self.duration_label.set_label(&gettext_f(
-                    "−{}",
-                    [format_time(duration.saturating_sub(position))],
-                ));
+                if self.show_remaining.get() {
+                    // Translators: Time left in a video, {} is a time like 1:05
+                    self.duration_label.set_label(&gettext_f(
+                        "−{}",
+                        [format_time(duration.saturating_sub(position))],
+                    ));
+                } else {
+                    self.duration_label.set_label(&format_time(duration));
+                }
                 self.updating.set(true);
                 self.seek.set_range(0., duration.mseconds() as f64 / 1000.);
                 self.seek.set_value(position.mseconds() as f64 / 1000.);
@@ -1348,14 +1272,12 @@ impl LpVideoPlayer {
         let imp = obj.imp();
         imp.file.replace(Some(file.clone()));
         imp.image.replace(image.cloned());
+        if let Some(name) = file.path().as_deref().and_then(|p| p.file_stem()) {
+            imp.title_label.set_label(&name.to_string_lossy());
+        }
 
         overlay.add_overlay(&imp.picture);
-        // Frosted glass behind the controls, like the editor's panels
-        let frost = crate::widgets::edit::LpFrost::default();
-        overlay.add_overlay(&frost);
-        imp.frost.replace(Some(frost));
         overlay.add_overlay(&imp.controls);
-        overlay.add_overlay(&imp.corner);
         overlay.add_overlay(&imp.preview);
         imp.overlay.set(Some(overlay));
         overlay.set_measure_overlay(&imp.picture, false);
@@ -1474,11 +1396,7 @@ impl LpVideoPlayer {
             let _ = playbin.set_state(gst::State::Null);
         }
         overlay.remove_overlay(&imp.picture);
-        if let Some(frost) = imp.frost.take() {
-            overlay.remove_overlay(&frost);
-        }
         overlay.remove_overlay(&imp.controls);
-        overlay.remove_overlay(&imp.corner);
         overlay.remove_overlay(&imp.preview);
         if let Some(motion) = imp.page_motion.take() {
             overlay.remove_controller(&motion);
@@ -2086,26 +2004,21 @@ fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
 }
 
-/// A row of the video menus: an icon at the start, the label and an icon
-/// at the end
-fn menu_row(label: &str, start: Option<&str>, end: Option<&str>) -> gtk::Button {
-    let content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let icon = gtk::Image::new();
-    icon.set_pixel_size(16);
-    icon.set_icon_name(start);
-    content.append(&icon);
-    let text = gtk::Label::new(Some(label));
-    text.set_xalign(0.);
-    text.set_hexpand(true);
-    content.append(&text);
-    if let Some(end) = end {
-        content.append(&gtk::Image::from_icon_name(end));
-    }
-    let row = gtk::Button::new();
-    row.set_child(Some(&content));
-    row.add_css_class("flat");
-    row.add_css_class("video-menu-row");
-    row
+/// A section of the settings menu: a heading over a control, like the
+/// playback speed in GNOME's video player
+fn menu_section(title: &str, control: &impl IsA<gtk::Widget>) -> gtk::Box {
+    let section = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    section.set_margin_top(9);
+    section.set_margin_bottom(9);
+    section.set_margin_start(9);
+    section.set_margin_end(9);
+    let heading = gtk::Label::new(Some(title));
+    heading.set_halign(gtk::Align::Start);
+    heading.set_margin_start(6);
+    heading.add_css_class("heading");
+    section.append(&heading);
+    section.append(control);
+    section
 }
 
 #[cfg(test)]
