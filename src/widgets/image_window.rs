@@ -668,6 +668,8 @@ impl LpImageWindow {
             .build();
         icon.add_overlay(&dot());
         imp.primary_menu.set_child(Some(&icon));
+        // A custom child makes it a raised text button; flat like the others
+        imp.primary_menu.add_css_class("image-button");
         imp.primary_menu.add_css_class("update-menu");
 
         // The dot needs a custom item, plain menu items have no room for it
