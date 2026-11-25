@@ -126,6 +126,8 @@ const SMALL_SCREEN_AREA: f64 = 1280. * 1024.;
 
 /// For small monitors occupy 80% of the screen area
 const SMALL_OCCUPY_SCREEN: f64 = 0.8;
+/// Windows open at most this part of the screen's width and height
+pub const MAX_SCREEN_SHARE: f64 = 0.6;
 
 /// The smallest edge of the image should not be rendered at a pixel size below
 /// this value, unless the image itself is smaller than this.

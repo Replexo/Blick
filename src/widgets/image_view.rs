@@ -64,6 +64,9 @@ mod imp {
     #[properties(wrapper_type = super::LpImageView)]
     #[template(file = "image_view.ui")]
     pub struct LpImageView {
+        /// The file opened from outside, not by moving through the folder
+        pub(super) opened_file: RefCell<Option<gio::File>>,
+
         /// Direct child of this Adw::Bin
         #[template_child]
         pub(super) bin_child: TemplateChild<gtk::Widget>,
@@ -483,12 +486,18 @@ impl LpImageView {
             recent_manager.add_item(&file.uri());
         }
 
+        self.imp().opened_file.replace(files.first().cloned());
         if files.len() == 1 {
             self.set_multiple(false);
             self.load_file(files[0].clone());
         } else {
             self.load_files(files, None);
         }
+    }
+
+    /// The file opened from outside, not by moving through the folder
+    pub fn opened_file(&self) -> Option<gio::File> {
+        self.imp().opened_file.borrow().clone()
     }
 
     fn set_multiple(&self, multiple: bool) {

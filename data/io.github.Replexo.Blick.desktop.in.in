@@ -12,3 +12,5 @@ MimeType=@MIME_TYPES@
 Keywords=Picture;Graphics;Loupe;Blick;Video;Movie;
 StartupNotify=true
 X-Purism-FormFactor=Workstation;Mobile;
+# Flatpak moves Glance's settings and data over to Blick
+X-Flatpak-RenamedFrom=io.github.Replexo.Glance.desktop;

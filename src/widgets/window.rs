@@ -34,6 +34,8 @@ use crate::widgets::{LpEditWindow, LpImageView, LpImageWindow};
 const SHOW_WINDOW_AFTER: u64 = 2000;
 
 /// Smallest window size, as in the template
+use crate::widgets::image::MAX_SCREEN_SHARE;
+
 pub const MIN_WIDTH: i32 = 360;
 pub const MIN_HEIGHT: i32 = 294;
 
@@ -243,13 +245,18 @@ impl LpWindow {
     /// The first video's size became known; the window takes it unless it
     /// already showed something else
     pub fn video_size_known(&self) {
-        if !self.imp().sized_for_video.get() && !self.is_maximized() && !self.is_fullscreen() {
+        let imp = self.imp();
+        // Switching to another file keeps the window as it is
+        let opened = self.image_view().opened_file();
+        let current = self.image_view().current_file();
+        let first = opened.zip(current).is_some_and(|(a, b)| a.equal(&b));
+        if first && !imp.sized_for_video.get() && !self.is_maximized() && !self.is_fullscreen() {
             self.resize_default();
         }
     }
 
     /// Window size for a video of `width` × `height`, as large as the video
-    /// but within the display, and at least the smallest window size
+    /// but within 60% of the display, and at least the smallest window size
     fn fit_to_display(&self, width: i32, height: i32) -> (i32, i32) {
         // The header bar above the video
         const CHROME: i32 = 47;
@@ -264,7 +271,10 @@ impl LpWindow {
             });
         let (max_width, max_height) = monitor.map_or((width, height + CHROME), |monitor| {
             let area = monitor.geometry();
-            (area.width(), area.height())
+            (
+                (area.width() as f64 * MAX_SCREEN_SHARE) as i32,
+                (area.height() as f64 * MAX_SCREEN_SHARE) as i32,
+            )
         });
         let scale = (max_width as f64 / width as f64)
             .min((max_height - CHROME) as f64 / height as f64)

@@ -210,17 +210,15 @@ impl WidgetImpl for imp::LpImage {
             let mut nat_width = image_width * target_scale;
             let mut nat_height = image_height * target_scale;
 
-            // Scale down if targeted occupation does not fit horizontally
-            // Add some margin to not touch corners
-            let max_width = monitor_width - 20.;
+            // Scale down to at most 60% of the screen's width
+            let max_width = monitor_width * MAX_SCREEN_SHARE;
             if nat_width > max_width {
                 nat_width = max_width;
                 nat_height = image_height * nat_width / image_width;
             }
 
-            // Same for vertical size
-            // Additionally substract some space for HeaderBar and Shell bar
-            let max_height = monitor_height - (50. + 35. + 20.) * hidpi_scale;
+            // Same for the height, which includes the header bar
+            let max_height = monitor_height * MAX_SCREEN_SHARE - 50. * hidpi_scale;
             if nat_height > max_height {
                 nat_height = max_height;
                 nat_width = image_width * nat_height / image_height;
