@@ -1566,7 +1566,7 @@ mod imp {
 
         /// Puts the paused frame into the image, for zoom, live text and
         /// copying
-        async fn show_frame_in_image(&self) {
+        pub(super) async fn show_frame_in_image(&self) {
             let obj = self.obj();
             let Some(image) = self.image.borrow().clone() else {
                 return;
@@ -2222,6 +2222,33 @@ impl LpVideoPlayer {
             node,
             Some(&graphene::Rect::new(0., 0., width as f32, height as f32)),
         ))
+    }
+
+    /// Puts the paused frame into the image now, as the editor needs it
+    pub fn hand_frame_to_image(&self) {
+        let imp = self.imp();
+        if let Some(source) = imp.frame_timeout.take() {
+            source.remove();
+        }
+        if imp.handing_off.get() {
+            return;
+        }
+        glib::spawn_future_local(clone!(
+            #[weak(rename_to = obj)]
+            self,
+            async move {
+                let imp = obj.imp();
+                imp.handing_off.set(true);
+                imp.show_frame_in_image().await;
+                imp.handing_off.set(false);
+            }
+        ));
+    }
+
+    /// No paused frame is on its way to the image
+    pub fn frame_settled(&self) -> bool {
+        let imp = self.imp();
+        !imp.handing_off.get() && imp.frame_timeout.borrow().is_none()
     }
 
     pub fn connect_error<F: Fn(&Self, String, String) + 'static>(&self, f: F) {

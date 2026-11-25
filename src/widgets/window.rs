@@ -353,10 +353,68 @@ impl LpWindow {
 
     pub fn show_edit(&self) {
         // A video opens on its paused frame, with a Video tab for trimming
-        if let Some(video) = self.image_view().current_video() {
+        let video = self.image_view().current_video();
+        if let Some(video) = &video {
             video.set_playing(false);
+            video.hand_frame_to_image();
         }
-        if let Some(image) = self.image_view().current_image() {
+        // Asked for before the file finished loading: the editor opens
+        // once it has
+        let ready = video.is_none()
+            && self
+                .image_view()
+                .current_image()
+                .is_some_and(|image| image.is_loaded() && image.editable());
+        if !ready {
+            let file = self.image_view().current_file();
+            let tries = std::cell::Cell::new(0);
+            glib::timeout_add_local(
+                std::time::Duration::from_millis(50),
+                glib::clone!(
+                    #[weak(rename_to = win)]
+                    self,
+                    #[upgrade_or]
+                    glib::ControlFlow::Break,
+                    move || {
+                        tries.set(tries.get() + 1);
+                        let image = win.image_view().current_image();
+                        // Still on the file, which may not be known yet
+                        // right after opening
+                        let same = file.as_ref().is_none_or(|file| {
+                            win.image_view().current_file().is_some_and(|current| current.equal(file))
+                        });
+                        let settled = win
+                            .image_view()
+                            .current_video()
+                            .is_none_or(|video| video.frame_settled());
+                        let loaded =
+                            settled && image.as_ref().is_some_and(|image| image.is_loaded());
+                        let failed = image.as_ref().is_some_and(|image| image.is_error());
+                        if same && loaded {
+                            win.open_editor();
+                        }
+                        if !same || loaded || failed || tries.get() > 200 {
+                            glib::ControlFlow::Break
+                        } else {
+                            glib::ControlFlow::Continue
+                        }
+                    }
+                ),
+            );
+            return;
+        }
+        self.open_editor();
+    }
+
+    fn open_editor(&self) {
+        let imp = self.imp();
+        if imp.stack.visible_child().as_ref() == Some(imp.edit_window_child.upcast_ref()) {
+            return;
+        }
+        let is_video = self.image_view().current_video().is_some();
+        if let Some(image) = self.image_view().current_image()
+            && (is_video || image.editable())
+        {
             let edit_child = &*self.imp().edit_window_child;
 
             edit_child.set_child(Some(&LpEditWindow::new(image)));

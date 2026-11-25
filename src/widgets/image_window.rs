@@ -947,17 +947,16 @@ impl LpImageWindow {
             self.action_set_enabled(action, enabled_current);
         }
 
-        // Editing related actions; videos need ffmpeg
-        let video_editing = is_video
-            && enabled_shown
-            && glib::find_program_in_path("ffmpeg").is_some();
+        // Editing stays on while the file loads, the editor opens once it
+        // is ready; videos need ffmpeg
+        let video_editing = is_video && glib::find_program_in_path("ffmpeg").is_some();
         let enable_editing = video_editing
-            || enabled_shown
+            || !is_video
                 && self
                     .imp()
                     .image_view
                     .current_image()
-                    .is_some_and(|x| x.editable());
+                    .is_some_and(|x| !x.is_error() && (!x.is_loaded() || x.editable()));
         self.action_set_enabled(&Action::Edit, enable_editing);
     }
 
