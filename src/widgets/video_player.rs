@@ -24,7 +24,8 @@
 
 use std::cell::{Cell, OnceCell, RefCell};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use adw::prelude::*;
@@ -81,6 +82,8 @@ mod imp {
         pub(super) ended: Cell<bool>,
         /// Subtitle delay in nanoseconds
         pub(super) subtitle_offset: Cell<i64>,
+        /// Counts seeks, so only the newest one runs
+        pub(super) seek_generation: Arc<AtomicU64>,
         /// Room kept below the controls for the folder strip
         pub(super) bottom_inset: Cell<i32>,
         /// Tell if the pointer rests on the buttons or the bottom bar
@@ -97,7 +100,6 @@ mod imp {
         pub(super) position_label: gtk::Label,
         pub(super) duration_label: gtk::Label,
         pub(super) seek: gtk::Scale,
-        pub(super) fullscreen_button: RefCell<Option<gtk::Button>>,
         pub(super) tracks_button: RefCell<Option<gtk::MenuButton>>,
         pub(super) volume_scale: gtk::Scale,
         pub(super) mute_button: gtk::ToggleButton,
@@ -192,7 +194,7 @@ mod imp {
             }
             self.bus_watch.take();
             if let Some(playbin) = self.playbin.get() {
-                let _ = playbin.set_state(gst::State::Null);
+                set_state_in_background(playbin, gst::State::Null);
             }
         }
     }
@@ -561,6 +563,8 @@ mod imp {
                 gst::ClockTime::from_nseconds((duration.nseconds() as f64 * fraction) as u64);
 
             self.preview_label.set_label(&format_time(position));
+            // A hidden widget measures as 0 wide, so it shows first
+            self.preview.set_visible(true);
             // Centred above the pointer, inside the page
             if let Some(overlay) = self.overlay.upgrade()
                 && let Some(point) =
@@ -576,7 +580,6 @@ mod imp {
                 self.preview
                     .set_margin_bottom(overlay.height() - point.y() as i32 + PREVIEW_GAP);
             }
-            self.preview.set_visible(true);
 
             self.preview_wanted.set(Some(position));
             self.load_preview();
@@ -917,7 +920,14 @@ mod imp {
                         #[upgrade_or]
                         glib::Propagation::Proceed,
                         move |_, _| {
-                            if !obj.is_active() {
+                            // Typing, like a zoom level, keeps its keys
+                            let typing = obj
+                                .imp()
+                                .picture
+                                .root()
+                                .and_then(|root| root.focus())
+                                .is_some_and(|focus| focus.is::<gtk::Text>() || focus.is::<gtk::Editable>());
+                            if !obj.is_active() || typing {
                                 return glib::Propagation::Proceed;
                             }
                             callback(&obj);
@@ -990,23 +1000,6 @@ mod imp {
 
         pub(super) fn show_controls(&self) {
             self.fade_controls(true);
-            let fullscreen = self
-                .picture
-                .root()
-                .and_downcast::<gtk::Window>()
-                .is_some_and(|w| w.is_fullscreen());
-            if let Some(button) = self.fullscreen_button.borrow().as_ref() {
-                button.set_icon_name(if fullscreen {
-                    "glance-fullscreen-exit-symbolic"
-                } else {
-                    "glance-fullscreen-symbolic"
-                });
-                button.update_property(&[gtk::accessible::Property::Label(&if fullscreen {
-                    gettext("Leave Fullscreen")
-                } else {
-                    gettext("Fullscreen")
-                })]);
-            }
             self.picture.set_cursor(None);
             self.schedule_hide();
         }
@@ -1451,7 +1444,7 @@ impl LpVideoPlayer {
         let imp = self.imp();
         self.set_active(false);
         if let Some(playbin) = imp.playbin.get() {
-            let _ = playbin.set_state(gst::State::Null);
+            set_state_in_background(playbin, gst::State::Null);
         }
         overlay.remove_overlay(&imp.picture);
         overlay.remove_overlay(&imp.controls);
@@ -1477,6 +1470,11 @@ impl LpVideoPlayer {
             return;
         }
         if active {
+            // Volume and mute are shared, and may have changed on another
+            // video since this one was loaded
+            imp.volume_scale.set_value(VOLUME.get());
+            imp.mute_button.set_active(MUTED.get());
+            imp.apply_volume();
             crate::mpris::set_player(Some(self));
             if !imp.started.replace(true) {
                 self.set_playing(true);
@@ -1491,7 +1489,6 @@ impl LpVideoPlayer {
         self.imp().position()
     }
 
-    /// Room kept free below the controls, for the folder strip
     /// Size of the video's frames, once the first one is decoded
     pub fn video_size(&self) -> Option<(i32, i32)> {
         let paintable = self.imp().picture.paintable()?;
@@ -1499,6 +1496,7 @@ impl LpVideoPlayer {
         (width > 0 && height > 0).then_some((width, height))
     }
 
+    /// Room kept free below the controls, for the folder strip
     pub fn bottom_inset(&self) -> i32 {
         self.imp().bottom_inset.get()
     }
@@ -1563,9 +1561,7 @@ impl LpVideoPlayer {
         } else {
             gst::State::Paused
         };
-        if let Err(err) = playbin.set_state(state) {
-            tracing::warn!("Could not change video state: {err}");
-        }
+        set_state_in_background(playbin, state);
 
         if playing {
             imp.picture.set_visible(true);
@@ -1659,11 +1655,14 @@ impl LpVideoPlayer {
         let position = imp.position().unwrap_or(gst::ClockTime::ZERO);
         imp.restore.set(Some((position, self.is_playing())));
         imp.playing.set(false);
-        let _ = playbin.set_state(gst::State::Ready);
-        playbin.set_property("suburi", file.uri().as_str());
         imp.subtitle_file.replace(Some(file.clone()));
         imp.select_new_subtitle.set(true);
-        let _ = playbin.set_state(gst::State::Paused);
+        let (playbin, uri) = (playbin.clone(), file.uri().to_string());
+        in_background(move || {
+            let _ = playbin.set_state(gst::State::Ready);
+            playbin.set_property("suburi", uri.as_str());
+            let _ = playbin.set_state(gst::State::Paused);
+        });
     }
 
     pub fn toggle_mute(&self) {
@@ -1696,18 +1695,7 @@ impl LpVideoPlayer {
         let Some(playbin) = imp.playbin.get() else {
             return;
         };
-        let flags = gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE;
-        let result = playbin.seek(
-            imp.rate.get(),
-            flags,
-            gst::SeekType::Set,
-            position,
-            gst::SeekType::None,
-            gst::ClockTime::NONE,
-        );
-        if let Err(err) = result {
-            tracing::debug!("Seek failed: {err}");
-        }
+        seek_in_background(playbin, &imp.seek_generation, imp.rate.get(), position);
         imp.position_label.set_label(&format_time(position));
     }
 
@@ -1729,12 +1717,15 @@ impl LpVideoPlayer {
             self.set_playing(false);
         }
         if forward {
-            playbin.send_event(gst::event::Step::new(
-                gst::format::Buffers::ONE,
-                1.,
-                true,
-                false,
-            ));
+            let playbin = playbin.clone();
+            in_background(move || {
+                playbin.send_event(gst::event::Step::new(
+                    gst::format::Buffers::ONE,
+                    1.,
+                    true,
+                    false,
+                ));
+            });
             glib::timeout_add_local_once(
                 Duration::from_millis(100),
                 clone!(
@@ -2109,6 +2100,45 @@ fn store_position(file: Option<&gio::File>, position: Option<f64>) {
 
 fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
+}
+
+/// Changes the state of `pipeline` on the worker thread, see `in_background`
+pub fn set_state_in_background(pipeline: &gst::Element, state: gst::State) {
+    let pipeline = pipeline.clone();
+    in_background(move || {
+        if let Err(err) = pipeline.set_state(state) {
+            tracing::warn!("Could not change video state: {err}");
+        }
+    });
+}
+
+/// Seeks `pipeline` to the exact frame at `position` on the worker thread.
+/// `generation` counts the seeks: one that is no longer the newest is
+/// skipped, so dragging doesn't queue up seeks.
+pub fn seek_in_background(
+    pipeline: &gst::Element,
+    generation: &Arc<AtomicU64>,
+    rate: f64,
+    position: gst::ClockTime,
+) {
+    let this = generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let (pipeline, generation) = (pipeline.clone(), generation.clone());
+    in_background(move || {
+        if generation.load(Ordering::SeqCst) != this {
+            return;
+        }
+        let result = pipeline.seek(
+            rate,
+            gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
+            gst::SeekType::Set,
+            position,
+            gst::SeekType::None,
+            gst::ClockTime::NONE,
+        );
+        if let Err(err) = result {
+            tracing::debug!("Seek failed: {err}");
+        }
+    });
 }
 
 /// Runs `f` on a worker thread, one job after the other. Changing a

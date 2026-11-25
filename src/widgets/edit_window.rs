@@ -253,6 +253,10 @@ mod imp {
                     obj,
                     async move {
                         if let Some((video, frames)) = obj.video_save() {
+                            // One save at a time; closing waits for it
+                            let Some(_guard) = obj.imp().begin_save() else {
+                                return;
+                            };
                             video.save_copy(frames).await;
                         } else {
                             obj.imp().save_copy().await
@@ -267,6 +271,9 @@ mod imp {
                     obj,
                     async move {
                         if let Some((video, frames)) = obj.video_save() {
+                            let Some(_guard) = obj.imp().begin_save() else {
+                                return;
+                            };
                             video.replace_original(frames).await;
                         } else {
                             let _ = obj.imp().save_overwrite().await;
@@ -281,6 +288,9 @@ mod imp {
                     obj,
                     async move {
                         if let Some((video, frames)) = obj.video_save() {
+                            let Some(_guard) = obj.imp().begin_save() else {
+                                return;
+                            };
                             video.save_smaller(frames).await;
                         }
                     }
@@ -1601,11 +1611,18 @@ impl LpEditWindow {
         }
         self.edit_crop().markup_canvas().finish_text();
         if self.has_unsaved_changes() {
+            let is_video = self.imp().video.get().is_some();
             let dialog = adw::AlertDialog::new(
                 Some(&gettext("Save Changes?")),
-                Some(&gettext(
-                    "There are unsaved image editing changes. Closing without saving will permanently lose these modifications.",
-                )),
+                Some(&if is_video {
+                    gettext(
+                        "There are unsaved video editing changes. Closing without saving will permanently lose these modifications.",
+                    )
+                } else {
+                    gettext(
+                        "There are unsaved image editing changes. Closing without saving will permanently lose these modifications.",
+                    )
+                }),
             );
 
             dialog.add_response("cancel", &gettext("Cancel"));
@@ -1622,6 +1639,26 @@ impl LpEditWindow {
                 "discard" => {
                     self.imp().has_unsaved_changes.replace(false);
                     glib::Propagation::Proceed
+                }
+                // A video saves through ffmpeg, not like an image
+                "save" if is_video => {
+                    let Some((video, frames)) = self.video_save() else {
+                        return glib::Propagation::Stop;
+                    };
+                    let Some(_guard) = self.imp().begin_save() else {
+                        return glib::Propagation::Stop;
+                    };
+                    let saved = if self.imp().can_trash.get() {
+                        video.replace_original(frames).await
+                    } else {
+                        video.save_copy(frames).await
+                    };
+                    if saved {
+                        self.imp().has_unsaved_changes.replace(false);
+                        glib::Propagation::Proceed
+                    } else {
+                        glib::Propagation::Stop
+                    }
                 }
                 // Replacing needs the original in the trash
                 "save" if !self.imp().can_trash.get() => {

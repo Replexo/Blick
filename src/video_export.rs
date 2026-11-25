@@ -212,6 +212,21 @@ async fn ffmpeg(
         move |_| process.force_exit()
     ));
 
+    // Errors are read at the same time as the progress: a full pipe
+    // would make ffmpeg wait
+    let stderr = process.stderr_pipe().map(|stderr| {
+        glib::spawn_future_local(async move {
+            let lines = gio::DataInputStream::new(&stderr);
+            let mut last = String::new();
+            while let Ok(Some(line)) = lines.read_line_utf8_future(glib::Priority::DEFAULT).await {
+                if !line.trim().is_empty() {
+                    last = line.to_string();
+                }
+            }
+            last
+        })
+    });
+
     // Progress lines like `out_time_us=1234567`
     if let Some(stdout) = process.stdout_pipe() {
         let lines = gio::DataInputStream::new(&stdout);
@@ -223,17 +238,8 @@ async fn ffmpeg(
             }
         }
     }
-    let stderr = match process.stderr_pipe() {
-        Some(stderr) => {
-            let lines = gio::DataInputStream::new(&stderr);
-            let mut last = String::new();
-            while let Ok(Some(line)) = lines.read_line_utf8_future(glib::Priority::DEFAULT).await {
-                if !line.trim().is_empty() {
-                    last = line.to_string();
-                }
-            }
-            last
-        }
+    let stderr = match stderr {
+        Some(task) => task.await.unwrap_or_default(),
         None => String::new(),
     };
     let _ = process.wait_future().await;
@@ -406,6 +412,9 @@ async fn copy_range(
         input.to_string_lossy().to_string(),
         "-map".into(),
         "0".into(),
+        // Data tracks, like an iPhone's, are left out: many containers
+        // refuse them
+        "-dn".into(),
         "-c".into(),
         "copy".into(),
     ]);
@@ -451,8 +460,11 @@ async fn smart_cut(
     let mut pieces: Vec<PathBuf> = Vec::new();
 
     let encode_piece = |from: f64, to: f64, name: &str| {
+        // The pixels stay as stored, like in the copied middle; the
+        // rotation is written again when the pieces are joined
         let mut args = vec![
-            "-ss".to_string(),
+            "-noautorotate".to_string(),
+            "-ss".into(),
             seconds(from),
             "-to".into(),
             seconds(to),
@@ -530,7 +542,11 @@ async fn smart_cut(
         .collect();
     std::fs::write(&list, list_text).map_err(|err| Error::Failed(err.to_string()))?;
 
+    // MPEG-TS has no rotation, so the source's comes back with the edit's
     let mut args = display_options(edit, source);
+    if args.is_empty() && source.rotation.rem_euclid(360) != 0 {
+        args = vec!["-display_rotation:v:0".into(), source.rotation.rem_euclid(360).to_string()];
+    }
     args.extend([
         "-f".into(),
         "concat".into(),
@@ -557,9 +573,7 @@ async fn smart_cut(
     }
     args.extend(["-c".into(), "copy".into()]);
     args.push(output_path.to_string_lossy().to_string());
-    let result = ffmpeg(&args, total, total, progress, cancellable).await;
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    ffmpeg(&args, total, total, progress, cancellable).await
 }
 
 /// Encodes the whole kept range again, in the source codec
@@ -722,9 +736,7 @@ pub async fn save_smaller(
         args.extend(["-movflags".into(), "+faststart".into()]);
     }
     args.push(output_path.to_string_lossy().to_string());
-    let result = ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await;
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await
 }
 
 /// Edits made in the photo editor's tabs, applied to every frame
@@ -966,9 +978,7 @@ pub async fn save_edited(
         args.extend(["-map".into(), "0:a?".into(), "-c:a".into(), "copy".into()]);
     }
     args.push(output_path.to_string_lossy().to_string());
-    let result = ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await;
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    ffmpeg(&args, edit.end - edit.start, 0., &progress, cancellable).await
 }
 
 /// Width and height as shown, after the rotation in the file
@@ -991,7 +1001,25 @@ async fn source_size(input: &Path, cancellable: &gio::Cancellable) -> Option<(u3
     Some(if rotation.rem_euclid(180) == 90 { (h, w) } else { (w, h) })
 }
 
-fn temp_dir() -> Result<PathBuf, Error> {
+/// A folder for the pieces of an export, removed when dropped, also when
+/// the export fails or is cancelled
+struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+fn temp_dir() -> Result<TempDir, Error> {
     thread_local! {
         static COUNTER: Cell<u32> = const { Cell::new(0) };
     }
@@ -1001,7 +1029,7 @@ fn temp_dir() -> Result<PathBuf, Error> {
         .join("blick")
         .join(format!("export-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&dir).map_err(|err| Error::Failed(err.to_string()))?;
-    Ok(dir)
+    Ok(TempDir(dir))
 }
 
 #[cfg(test)]

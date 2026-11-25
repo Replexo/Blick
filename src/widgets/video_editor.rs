@@ -35,7 +35,9 @@ use crate::util::gettext::*;
 use crate::util::root::ParentWindow;
 use crate::video_export::{self, FrameEdits, Quality, VideoEdit};
 use crate::widgets::LpVideoTrimmer;
-use crate::widgets::video_player::{format_time, video_info};
+use crate::widgets::video_player::{
+    format_time, in_background, seek_in_background, set_state_in_background, video_info,
+};
 
 mod imp {
     use super::*;
@@ -69,6 +71,8 @@ mod imp {
         pub(super) cancellable: RefCell<Option<gio::Cancellable>>,
         /// Mute as last given to the pipeline
         pub(super) muted: Cell<bool>,
+        /// Counts seeks, so only the newest one runs
+        pub(super) seek_generation: std::sync::Arc<std::sync::atomic::AtomicU64>,
     }
 
     #[glib::object_subclass]
@@ -93,7 +97,7 @@ mod imp {
             }
             self.bus_watch.take();
             if let Some(playbin) = self.playbin.get() {
-                let _ = playbin.set_state(gst::State::Null);
+                set_state_in_background(playbin, gst::State::Null);
             }
         }
     }
@@ -141,7 +145,6 @@ mod imp {
             self.play_button.set_icon_name("glance-play-symbolic");
             self.play_button.set_tooltip_text(Some(&gettext("Play")));
             self.play_button.add_css_class("circular");
-            self.play_button.add_css_class("video-play");
             self.play_button.connect_clicked(clone!(
                 #[weak]
                 obj,
@@ -311,7 +314,7 @@ mod imp {
             {
                 let playbin = playbin.clone();
                 let mute = edit.mute;
-                crate::widgets::video_player::in_background(move || {
+                in_background(move || {
                     playbin.set_property("mute", mute);
                 });
             }
@@ -344,11 +347,14 @@ mod imp {
                 self.time_badge.set_visible(false);
             }
             self.playing.set(playing);
-            let _ = playbin.set_state(if playing {
-                gst::State::Playing
-            } else {
-                gst::State::Paused
-            });
+            set_state_in_background(
+                playbin,
+                if playing {
+                    gst::State::Playing
+                } else {
+                    gst::State::Paused
+                },
+            );
             self.play_button.set_icon_name(if playing {
                 "glance-pause-symbolic"
             } else {
@@ -397,8 +403,10 @@ mod imp {
 
         pub(super) fn seek(&self, seconds: f64) {
             if let Some(playbin) = self.playbin.get() {
-                let _ = playbin.seek_simple(
-                    gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE,
+                seek_in_background(
+                    playbin,
+                    &self.seek_generation,
+                    1.,
                     gst::ClockTime::from_seconds_f64(seconds.max(0.)),
                 );
             }
@@ -511,7 +519,14 @@ impl LpVideoEditor {
             .flatten()
             .unwrap_or_default();
         let imp = self.imp();
-        let duration = info.duration.map_or(0., |d| d.seconds_f64());
+        let mut duration = info.duration.map_or(0., |d| d.seconds_f64());
+        // Some recordings have no length in their header; ffprobe counts it
+        if duration <= 0.
+            && let Some(path) = self.file().path()
+            && let Ok(source) = video_export::probe(&path, &gio::Cancellable::new()).await
+        {
+            duration = source.duration;
+        }
         imp.duration.set(duration);
         let edit = VideoEdit::new(duration);
 
@@ -592,6 +607,13 @@ impl LpVideoEditor {
         let path = self.file().path();
         if path.is_none() {
             self.show_toast(&gettext("Only videos in local folders can be edited"));
+            return None;
+        }
+        // Without a length the kept range is empty, which would save an
+        // empty video
+        if self.imp().duration.get() <= 0. {
+            self.show_toast(&gettext("The length of this video is unknown, so it can’t be saved"));
+            return None;
         }
         path
     }
@@ -625,7 +647,11 @@ impl LpVideoEditor {
                 return gio::File::for_path(candidate);
             }
         }
-        file
+        // Never the video itself
+        gio::File::for_path(path.with_file_name(format!(
+            "{stem} ({suffix} {}).{extension}",
+            glib::real_time()
+        )))
     }
 
     async fn choose_file(&self, suggested: &gio::File) -> Option<PathBuf> {
@@ -636,14 +662,15 @@ impl LpVideoEditor {
     }
 
     /// Saves a copy with the trim and `frames`, the other tabs' edits
-    pub async fn save_copy(&self, frames: FrameEdits) {
+    /// Saves the edited video as a new file; true once it is saved
+    pub async fn save_copy(&self, frames: FrameEdits) -> bool {
         let Some(input) = self.input_path() else {
-            return;
+            return false;
         };
         // Translators: File name suffix of edited copies
         let suggested = self.suggested_name(&gettext("Edited"), None);
         let Some(output) = self.choose_file(&suggested).await else {
-            return;
+            return false;
         };
         let edit = self.edit();
         let saved = self
@@ -655,14 +682,17 @@ impl LpVideoEditor {
         if saved {
             self.window_inspect(|w| w.show_specific_image(gio::File::for_path(&output)));
         }
+        saved
     }
 
     /// Writes next to the original, moves the original to the trash or
-    /// overwrites it when that is not possible
-    pub async fn replace_original(&self, frames: FrameEdits) {
+    /// overwrites it when that is not possible; true once it is replaced
+    pub async fn replace_original(&self, frames: FrameEdits) -> bool {
         let Some(input) = self.input_path() else {
-            return;
+            return false;
         };
+        // A link is followed, so the video itself is replaced
+        let input = std::fs::canonicalize(&input).unwrap_or(input);
         let temp = hidden_temp_path(&input);
         let edit = self.edit();
         let saved = self
@@ -673,21 +703,34 @@ impl LpVideoEditor {
             .await;
         if !saved {
             let _ = std::fs::remove_file(&temp);
-            return;
+            return false;
         }
         let original = gio::File::for_path(&input);
+        // Permissions, owner and other attributes stay those of the original
+        if let Err(err) = original.copy_attributes(
+            &gio::File::for_path(&temp),
+            gio::FileCopyFlags::ALL_METADATA,
+            gio::Cancellable::NONE,
+        ) {
+            tracing::warn!("Could not copy the video's attributes: {err}");
+        }
+        let _ = set_modified_now(&temp);
         if let Err(err) = original.trash_future(glib::Priority::DEFAULT).await {
             tracing::info!("Could not move the original to the trash, overwriting: {err}");
         }
         if let Err(err) = std::fs::rename(&temp, &input) {
-            let _ = std::fs::remove_file(&temp);
-            self.show_toast(&gettext_f("Could not replace the original: {}", [err.to_string()]));
-            return;
+            // The edited video stays, next to where the original was
+            self.show_toast(&gettext_f(
+                "Could not replace the original, the edited video is kept as {}: {}",
+                [temp.to_string_lossy().to_string(), err.to_string()],
+            ));
+            return false;
         }
         // The folder reports the trashed original a moment later; showing the
         // video before that would move the viewer to its neighbour
         glib::timeout_future(Duration::from_millis(600)).await;
         self.window_inspect(|w| w.show_specific_image(original));
+        true
     }
 
     pub async fn save_smaller(&self, frames: FrameEdits) {
@@ -807,6 +850,15 @@ fn hidden_temp_path(path: &Path) -> PathBuf {
         .map(|x| format!(".{}", x.to_string_lossy()))
         .unwrap_or_default();
     path.with_file_name(format!(".{name}.tmp{extension}"))
+}
+
+/// Marks `path` as changed now; the copied attributes carry the original's
+/// time
+fn set_modified_now(path: &Path) -> std::io::Result<()> {
+    std::fs::File::options()
+        .write(true)
+        .open(path)?
+        .set_modified(std::time::SystemTime::now())
 }
 
 #[cfg(test)]

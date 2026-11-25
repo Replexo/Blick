@@ -174,7 +174,9 @@ mod imp {
         pub(super) hold_timeout: RefCell<Option<glib::SourceId>>,
 
         pub(super) grabber: OnceCell<FrameGrabber>,
-        pub(super) thumbnails: RefCell<BTreeMap<i64, gdk::Texture>>,
+        /// Thumbnails by millisecond, and if they show the exact frame
+        /// rather than the keyframe before it
+        pub(super) thumbnails: RefCell<BTreeMap<i64, (gdk::Texture, bool)>>,
         pub(super) wanted: RefCell<Vec<i64>>,
         pub(super) loading: Cell<bool>,
         pub(super) thumbnail_aspect: Cell<f64>,
@@ -415,7 +417,7 @@ mod imp {
                     .range(..=key)
                     .next_back()
                     .or_else(|| thumbnails.range(key..).next())
-                    .map(|(_, texture)| texture);
+                    .map(|(_, (texture, _))| texture);
                 if let Some(texture) = texture {
                     let x = self.time_to_x(time) as f32;
                     let rect = graphene::Rect::new(x, inner.y(), slot_width as f32 + 0.5, inner.height());
@@ -451,7 +453,11 @@ mod imp {
             let mut time = (from / slot_time).floor() * slot_time;
             while time < to.min(self.duration.get()) {
                 let key = (time * 1000.) as i64;
-                if !thumbnails.contains_key(&key) {
+                // Zoomed in, keyframe thumbnails can be seconds off
+                let usable = thumbnails
+                    .get(&key)
+                    .is_some_and(|(_, exact)| *exact || !self.zoomed.get());
+                if !usable {
                     wanted.push(key);
                 }
                 time += slot_time;
@@ -483,7 +489,7 @@ mod imp {
                     if let Some(texture) = texture {
                         imp.thumbnail_aspect
                             .set(texture.width() as f64 / texture.height().max(1) as f64);
-                        imp.thumbnails.borrow_mut().insert(key, texture);
+                        imp.thumbnails.borrow_mut().insert(key, (texture, accurate));
                         obj.queue_draw();
                     }
                     imp.loading.set(false);
@@ -603,7 +609,9 @@ mod imp {
                     obj.emit_by_name::<()>("preview", &[&start]);
                 }
                 Part::End => {
-                    let end = time.clamp(self.start.get() + MIN_LENGTH, self.duration.get());
+                    // A video shorter than the shortest cut stays whole
+                    let lower = self.start.get() + MIN_LENGTH;
+                    let end = time.clamp(lower, self.duration.get().max(lower));
                     self.end.set(end);
                     self.position.set(end);
                     obj.emit_by_name::<()>("preview", &[&end]);
