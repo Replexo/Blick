@@ -102,6 +102,15 @@ lpthumbnailstrip.compact .current .thumbnail {
   background-color: alpha(white, 0.15);
 }
 
+/* Repeat while it is on */
+.video-player button.highlighted:checked {
+  background-color: alpha(white, 0.25);
+}
+
+.video-player button.highlighted:checked:hover {
+  background-color: alpha(white, 0.32);
+}
+
 .video-player scale.highlighted slider:hover {
   transform: scale(1.2);
 }
