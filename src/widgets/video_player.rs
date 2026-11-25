@@ -427,14 +427,8 @@ mod imp {
             repeat.set_icon_name("glance-repeat-symbolic");
             repeat.set_action_name(Some("video.loop"));
             repeat.set_tooltip_text(Some(&gettext("Repeat")));
-            // The icon tells if repeat is on
-            repeat.connect_toggled(|button| {
-                button.set_icon_name(if button.is_active() {
-                    "glance-repeat-one-symbolic"
-                } else {
-                    "glance-repeat-symbolic"
-                });
-            });
+            // Dimmed when off, bright with a dot when on
+            repeat.add_css_class("repeat");
 
             for button in [
                 backwards.upcast_ref::<gtk::Widget>(),

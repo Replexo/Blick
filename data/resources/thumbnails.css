@@ -103,6 +103,15 @@ lpthumbnailstrip.compact .current .thumbnail {
   background-color: alpha(white, 0.15);
 }
 
+/* Repeat: dimmed when off, a dot below when on */
+.video-player button.repeat:not(:checked) > image {
+  opacity: 0.55;
+}
+
+.video-player button.repeat:checked {
+  background-image: radial-gradient(circle at 50% 92%, white 1.5px, transparent 2px);
+}
+
 .video-player scale.highlighted slider:hover {
   transform: scale(1.2);
 }
@@ -128,6 +137,7 @@ lpthumbnailstrip.compact .current .thumbnail {
 }
 
 .video-player label.overlaid,
+.video-player label.speed,
 .video-player button.overlaid > image,
 .video-player button.overlaid > label,
 .video-player menubutton.overlaid > button > box > image,
