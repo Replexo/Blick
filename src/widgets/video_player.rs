@@ -112,6 +112,9 @@ mod imp {
         pub(super) subtitle_label: gtk::Label,
         /// Hides the subtitle when its time is over
         pub(super) subtitle_timeout: RefCell<Option<glib::SourceId>>,
+        /// A new subtitle track was chosen; its text is fetched for the
+        /// current position once the switch is done
+        pub(super) refresh_subtitle: Cell<bool>,
         /// The subtitle's time ran out while paused
         pub(super) subtitle_expired: Cell<bool>,
         /// Text height as a part of the video's height, and in pixels
@@ -679,6 +682,8 @@ mod imp {
                     };
                     action.set_state(&id.to_variant());
                     let imp = obj.imp();
+                    imp.hide_subtitle();
+                    imp.refresh_subtitle.set(!id.is_empty());
                     imp.text_stream
                         .replace((!id.is_empty()).then_some(id));
                     imp.select_streams();
@@ -1425,9 +1430,17 @@ mod imp {
                             text = id;
                         }
                     }
+                    let has_text = text.is_some();
                     self.audio_stream.replace(audio);
                     self.text_stream.replace(text);
                     self.update_tracks_menu();
+                    // The new track's text shows now, not at its next line
+                    if self.refresh_subtitle.take()
+                        && has_text
+                        && let Some(position) = self.position()
+                    {
+                        self.obj().seek_to(position);
+                    }
                 }
                 gst::MessageView::Element(_) => {
                     if let Ok(missing) = gst_pbutils::MissingPluginMessage::parse(message) {
