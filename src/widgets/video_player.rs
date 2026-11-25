@@ -91,6 +91,8 @@ mod imp {
         /// settled, and whether that is underway
         pub(super) frame_timeout: RefCell<Option<glib::SourceId>>,
         pub(super) handing_off: Cell<bool>,
+        /// The length was compared with what ffprobe reads
+        pub(super) duration_checked: Cell<bool>,
         /// Size read from the file before the first frame is decoded
         pub(super) size_hint: Cell<Option<(i32, i32)>>,
         /// Asked to play or pause before the pipeline was ready
@@ -1383,9 +1385,34 @@ mod imp {
             else {
                 return;
             };
+            let duration = self.duration.get().map_or(duration, |known| known.max(duration));
             self.duration.set(Some(duration));
-
             self.update_position();
+
+            // Some files state a shorter length in their header than the
+            // video has; ffprobe reads the streams
+            if !self.duration_checked.replace(true)
+                && let Some(path) = self.file.borrow().as_ref().and_then(|file| file.path())
+            {
+                let obj = self.obj();
+                glib::spawn_future_local(clone!(
+                    #[weak]
+                    obj,
+                    async move {
+                        let Ok(source) =
+                            crate::video_export::probe(&path, &gio::Cancellable::new()).await
+                        else {
+                            return;
+                        };
+                        let imp = obj.imp();
+                        let probed = gst::ClockTime::from_seconds_f64(source.duration);
+                        if imp.duration.get().is_some_and(|known| probed > known) {
+                            imp.duration.set(Some(probed));
+                            imp.update_position();
+                        }
+                    }
+                ));
+            }
         }
 
         pub(super) fn on_message(&self, message: &gst::Message) {

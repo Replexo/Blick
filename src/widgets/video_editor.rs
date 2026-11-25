@@ -520,12 +520,12 @@ impl LpVideoEditor {
             .unwrap_or_default();
         let imp = self.imp();
         let mut duration = info.duration.map_or(0., |d| d.seconds_f64());
-        // Some recordings have no length in their header; ffprobe counts it
-        if duration <= 0.
-            && let Some(path) = self.file().path()
+        // Some recordings have no length in their header, or one shorter
+        // than the video; ffprobe reads the streams
+        if let Some(path) = self.file().path()
             && let Ok(source) = video_export::probe(&path, &gio::Cancellable::new()).await
         {
-            duration = source.duration;
+            duration = duration.max(source.duration);
         }
         imp.duration.set(duration);
         let edit = VideoEdit::new(duration);
