@@ -244,14 +244,26 @@ impl LpWindow {
 
     /// The first video's size became known; the window takes it unless it
     /// already showed something else
-    pub fn video_size_known(&self) {
+    pub fn video_size_known(&self, video: &crate::widgets::LpVideoPlayer) {
         let imp = self.imp();
-        // Switching to another file keeps the window as it is
+        // Only the video the window opened with sizes it
         let opened = self.image_view().opened_file();
-        let current = self.image_view().current_file();
-        let first = opened.zip(current).is_some_and(|(a, b)| a.equal(&b));
-        if first && !imp.sized_for_video.get() && !self.is_maximized() && !self.is_fullscreen() {
-            self.resize_default();
+        if !opened.zip(video.file()).is_some_and(|(a, b)| a.equal(&b)) {
+            return;
+        }
+        if !imp.sized_for_video.get()
+            && !self.is_maximized()
+            && !self.is_fullscreen()
+            && let Some((width, height)) = video.video_size()
+        {
+            imp.sized_for_video.set(true);
+            let (width, height) = self.fit_to_display(width, height);
+            self.set_default_size(width, height);
+        }
+        // Shown once its size is known, so it opens centred at that size
+        if !self.is_visible() {
+            tracing::debug!("Showing window because the video size is known");
+            self.present();
         }
     }
 

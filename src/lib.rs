@@ -107,6 +107,8 @@ pub fn main() -> glib::ExitCode {
 
     tracing::debug!("Logger initialized");
 
+    prefer_integrated_gpu();
+
     // Text recognition runs several Tesseract instances side by side. With
     // a Tesseract built with OpenMP, its own threads would compete with them
     // and keep spinning after each read. OpenMP reads its settings when it
@@ -147,4 +149,69 @@ pub fn main() -> glib::ExitCode {
     }
 
     LpApplication::new().run()
+}
+
+/// With NVIDIA's drivers and a built-in GPU, draws with the built-in one
+///
+/// It starts in half the time, and decodes videos itself, so frames do not
+/// have to move between the GPUs. Skipped when the user picked a GPU.
+fn prefer_integrated_gpu() {
+    const CHOSEN: &[&str] = &[
+        "VK_LOADER_DRIVERS_SELECT",
+        "VK_DRIVER_FILES",
+        "VK_ICD_FILENAMES",
+        "__EGL_VENDOR_LIBRARY_FILENAMES",
+        "__NV_PRIME_RENDER_OFFLOAD",
+        "__GLX_VENDOR_LIBRARY_NAME",
+        "DRI_PRIME",
+        "GSK_RENDERER",
+    ];
+    if CHOSEN.iter().any(|name| std::env::var_os(name).is_some()) {
+        return;
+    }
+
+    let vendors: Vec<String> = std::fs::read_dir("/sys/class/drm")
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("renderD"))
+        .filter_map(|entry| std::fs::read_to_string(entry.path().join("device/vendor")).ok())
+        .map(|vendor| vendor.trim().to_lowercase())
+        .collect();
+    // Its drivers come first even when the GPU itself is asleep
+    let has_nvidia = vendors.iter().any(|vendor| vendor == "0x10de")
+        || [
+            "/usr/share/glvnd/egl_vendor.d/10_nvidia.json",
+            "/usr/share/vulkan/icd.d/nvidia_icd.json",
+            "/etc/vulkan/icd.d/nvidia_icd.json",
+        ]
+        .iter()
+        .any(|path| std::path::Path::new(path).exists());
+    // Intel or AMD
+    let has_integrated = vendors.iter().any(|vendor| vendor == "0x8086" || vendor == "0x1002");
+    let mesa_egl = ["/usr/share/glvnd/egl_vendor.d/50_mesa.json"]
+        .into_iter()
+        .find(|path| std::path::Path::new(path).exists());
+    let mesa_vulkan = ["/usr/share/vulkan/icd.d", "/etc/vulkan/icd.d"]
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flatten()
+        .flatten()
+        .any(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.starts_with("intel_icd") || name.starts_with("radeon_icd")
+        });
+
+    if has_nvidia
+        && has_integrated
+        && mesa_vulkan
+        && let Some(mesa_egl) = mesa_egl
+    {
+        tracing::debug!("Drawing with the built-in GPU");
+        // SAFETY: Before any other thread is started
+        unsafe {
+            std::env::set_var("VK_LOADER_DRIVERS_SELECT", "*intel*,*radeon*");
+            std::env::set_var("__EGL_VENDOR_LIBRARY_FILENAMES", mesa_egl);
+        }
+    }
 }

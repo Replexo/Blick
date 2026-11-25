@@ -511,10 +511,14 @@ impl LpImageView {
     /// Shows the folder's thumbnails instead of the previous and next buttons
     fn update_folder_strip(&self) {
         let imp = self.imp();
-        let files = if self.multiple() {
+        // Photos only; videos show like in a video player, without it
+        let files: Vec<gio::File> = if self.multiple() {
             Vec::new()
         } else {
             self.files()
+                .into_iter()
+                .filter(|file| !crate::widgets::image_page::is_video(file))
+                .collect()
         };
         let show = files.len() > 1;
 

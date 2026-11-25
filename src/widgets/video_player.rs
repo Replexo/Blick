@@ -44,6 +44,8 @@ const SKIP: gst::ClockTime = gst::ClockTime::from_seconds(10);
 const HIDE_DELAY: Duration = Duration::from_secs(3);
 /// Playback speeds offered in the menu
 const SPEEDS: [f64; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+/// Paused frames go to the image this long after the last pause or seek
+const FRAME_HANDOFF_DELAY: Duration = Duration::from_millis(700);
 /// Width of the frame preview over the seek bar
 const PREVIEW_WIDTH: i32 = 112;
 /// Space between the seek bar and the frame preview above it
@@ -85,6 +87,12 @@ mod imp {
         pub(super) ended: Cell<bool>,
         /// Subtitle delay in nanoseconds
         pub(super) subtitle_offset: Cell<i64>,
+        /// Hands the paused frame to the image once pausing and seeking
+        /// settled, and whether that is underway
+        pub(super) frame_timeout: RefCell<Option<glib::SourceId>>,
+        pub(super) handing_off: Cell<bool>,
+        /// Size read from the file before the first frame is decoded
+        pub(super) size_hint: Cell<Option<(i32, i32)>>,
         /// Asked to play or pause before the pipeline was ready
         pub(super) pending_playing: Cell<Option<bool>>,
         /// Counts seeks, so only the newest one runs
@@ -211,6 +219,9 @@ mod imp {
                 source.remove();
             }
             if let Some(source) = self.subtitle_timeout.take() {
+                source.remove();
+            }
+            if let Some(source) = self.frame_timeout.take() {
                 source.remove();
             }
             self.bus_watch.take();
@@ -1403,11 +1414,7 @@ mod imp {
                     }
                     if !self.playing.get() {
                         self.update_position();
-                        glib::spawn_future_local(clone!(
-                            #[weak]
-                            obj,
-                            async move { obj.imp().show_frame_in_image().await }
-                        ));
+                        self.schedule_frame_handoff();
                     }
                 }
                 gst::MessageView::DurationChanged(_) => self.update_duration(),
@@ -1526,9 +1533,40 @@ mod imp {
             }
         }
 
+        /// Hands the paused frame to the image after pausing and seeking
+        /// settled, as copying a large frame stalls a moment
+        pub(super) fn schedule_frame_handoff(&self) {
+            if let Some(source) = self.frame_timeout.take() {
+                source.remove();
+            }
+            let obj = self.obj();
+            let source = glib::timeout_add_local_once(
+                FRAME_HANDOFF_DELAY,
+                clone!(
+                    #[weak]
+                    obj,
+                    move || {
+                        let imp = obj.imp();
+                        imp.frame_timeout.take();
+                        if imp.handing_off.get() {
+                            imp.schedule_frame_handoff();
+                            return;
+                        }
+                        glib::spawn_future_local(async move {
+                            let imp = obj.imp();
+                            imp.handing_off.set(true);
+                            imp.show_frame_in_image().await;
+                            imp.handing_off.set(false);
+                        });
+                    }
+                ),
+            );
+            self.frame_timeout.replace(Some(source));
+        }
+
         /// Puts the paused frame into the image, for zoom, live text and
         /// copying
-        pub(super) async fn show_frame_in_image(&self) {
+        async fn show_frame_in_image(&self) {
             let obj = self.obj();
             let Some(image) = self.image.borrow().clone() else {
                 return;
@@ -1624,16 +1662,69 @@ impl LpVideoPlayer {
         overlay.add_controller(motion.clone());
         imp.page_motion.replace(Some(motion));
 
-        if let Err(err) = obj.build_pipeline(file) {
-            let details = err.to_string();
-            glib::idle_add_local_once(clone!(
+        // The window waits for the video's size to open at it, but frames
+        // only come once it shows, so the size is read from the file first
+        let window_shown = gtk::Window::list_toplevels()
+            .iter()
+            .any(|window| window.is_visible());
+        if !window_shown {
+            let uri = file.uri().to_string();
+            glib::spawn_future_local(clone!(
                 #[weak]
                 obj,
-                move || obj.report_missing_playback(&details)
+                async move {
+                    let size = gio::spawn_blocking(move || display_size(&uri)).await.ok().flatten();
+                    if let Some(size) = size {
+                        obj.imp().size_hint.set(Some(size));
+                        obj.notify_size_known();
+                    }
+                }
             ));
         }
 
+        // Setting up the sink takes a while the first time, so only once
+        // the page shows, after the window opened
+        if imp.picture.is_mapped() {
+            obj.start_pipeline(file);
+        } else {
+            let handler = std::rc::Rc::new(RefCell::new(None));
+            let id = imp.picture.connect_map(clone!(
+                #[weak]
+                obj,
+                #[strong]
+                handler,
+                #[strong]
+                file,
+                move |picture| {
+                    if let Some(id) = handler.take() {
+                        picture.disconnect(id);
+                    }
+                    obj.start_pipeline(&file);
+                }
+            ));
+            handler.replace(Some(id));
+        }
+
         obj
+    }
+
+    fn start_pipeline(&self, file: &gio::File) {
+        if let Err(err) = self.build_pipeline(file) {
+            let details = err.to_string();
+            glib::idle_add_local_once(clone!(
+                #[weak(rename_to = obj)]
+                self,
+                move || obj.report_missing_playback(&details)
+            ));
+        }
+    }
+
+    /// Tells the window the video's size, so a window opened for it can
+    /// take it
+    fn notify_size_known(&self) {
+        if let Some(window) = self.imp().picture.root().and_downcast::<crate::widgets::LpWindow>() {
+            window.video_size_known(self);
+        }
     }
 
     /// The sink and its paintable are made here, as they belong to the main
@@ -1649,13 +1740,7 @@ impl LpVideoPlayer {
         paintable.connect_invalidate_size(clone!(
             #[weak(rename_to = obj)]
             self,
-            move |_| {
-                if obj.is_active()
-                    && let Some(window) = obj.imp().picture.root().and_downcast::<crate::widgets::LpWindow>()
-                {
-                    window.video_size_known();
-                }
-            }
+            move |_| obj.notify_size_known()
         ));
         let gl = paintable
             .property::<Option<gdk::GLContext>>("gl-context")
@@ -1847,9 +1932,12 @@ impl LpVideoPlayer {
 
     /// Size of the video's frames, once the first one is decoded
     pub fn video_size(&self) -> Option<(i32, i32)> {
-        let paintable = self.imp().picture.paintable()?;
-        let (width, height) = (paintable.intrinsic_width(), paintable.intrinsic_height());
-        (width > 0 && height > 0).then_some((width, height))
+        let imp = self.imp();
+        imp.picture
+            .paintable()
+            .map(|paintable| (paintable.intrinsic_width(), paintable.intrinsic_height()))
+            .filter(|(width, height)| *width > 0 && *height > 0)
+            .or(imp.size_hint.get())
     }
 
     /// Room kept free below the controls, for the folder strip
@@ -1964,18 +2052,7 @@ impl LpVideoPlayer {
             // Pausing sends no new frame, so the shown one goes to the image;
             // not for a video being left, the copy would only cost time
             if was_playing && imp.active.get() {
-                glib::timeout_add_local_once(
-                    Duration::from_millis(100),
-                    clone!(
-                        #[weak(rename_to = obj)]
-                        self,
-                        move || {
-                            glib::spawn_future_local(async move {
-                                obj.imp().show_frame_in_image().await
-                            });
-                        }
-                    ),
-                );
+                imp.schedule_frame_handoff();
             }
             imp.update_position();
         }
@@ -2098,9 +2175,7 @@ impl LpVideoPlayer {
                     self,
                     move || {
                         obj.imp().update_position();
-                        glib::spawn_future_local(async move {
-                            obj.imp().show_frame_in_image().await
-                        });
+                        obj.imp().schedule_frame_handoff();
                     }
                 ),
             );
@@ -2317,6 +2392,19 @@ pub fn video_info(uri: &str) -> Option<VideoInfo> {
         result.audio_codec = description(audio.caps());
     }
     Some(result)
+}
+
+/// Size the video shows at, turned as its rotation tag says; blocks
+fn display_size(uri: &str) -> Option<(i32, i32)> {
+    let discoverer = gst_pbutils::Discoverer::new(gst::ClockTime::from_seconds(3)).ok()?;
+    let info = discoverer.discover_uri(uri).ok()?;
+    let video = info.video_streams().into_iter().next()?;
+    let (width, height) = (video.width() as i32, video.height() as i32);
+    let turned = gst_pbutils::prelude::DiscovererStreamInfoExt::tags(&video)
+        .and_then(|tags| tags.get::<gst::tags::ImageOrientation>().map(|x| x.get().to_string()))
+        .is_some_and(|orientation| orientation.contains("90") || orientation.contains("270"));
+    let (width, height) = if turned { (height, width) } else { (width, height) };
+    (width > 0 && height > 0).then_some((width, height))
 }
 
 /// `1×`, `1.5×`
