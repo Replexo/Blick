@@ -26,61 +26,17 @@ Blick runs on any Linux desktop and comes as a Flatpak, an AppImage, and package
 
 ## Features
 
-### Viewing
-
-Everything you know from Loupe: fast and sandboxed image loading, smooth zoom and gestures, image metadata, printing and setting a picture as the background.
-
-Small thumbnails float over the bottom of the photo, on a soft shade, to jump to the other photos in the folder. They show when you move the pointer to the bottom and fade away after a few seconds. The arrow keys and swipes move between photos, and between videos when a video is open.
-
-Windows open centred, at most 60% of the screen, and keep their size as you move between files.
-
-### Videos
-
-Videos play like in GNOME's video player: edge to edge, under a see-through header that fades away with the controls. Seek with a frame preview, skip ten seconds, step through single frames, change the speed, repeat, and pick up where you left off. Playing and pausing is for the play button and <kbd>Space</kbd>, so a click on the picture never stops it by accident. When paused, zoom in, copy the frame, or select its text with live text.
-
-Subtitles with the same name as the video load by themselves and stay sharp at any size. The **CC** button picks subtitle and audio tracks, the subtitle size and delay, or other subtitle files.
-
-Motion photos from Google, Samsung and iPhone Live Photos get a small play button for their moving part.
-
-### Video editing
-
-Trim with a filmstrip like on the iPhone: drag the handles, and hold one still to zoom in until single frames show. Remove the sound, rotate and flip. Cuts are frame accurate and only the pieces at the cuts are encoded again, so the rest keeps its quality. **Save Smaller Copy** makes an H.264 or VP9 copy in three sizes, and **Save Frame as Image** opens the current frame in the photo editor. Saving videos needs ffmpeg.
-
-### Markup
-
-- Brush, highlighter, line, arrow, rectangle, ellipse and text tools.
-- An eraser that rubs out markup where you drag.
-- Preset and custom colours, an eyedropper to pick any colour from the photo, four line widths, and outlined or filled shapes.
-- Select, move, resize and rotate anything you have drawn.
-- Type text straight onto the picture, choose its font, size and background, and edit it again later.
-
-### Adjust
-
-Brightness, contrast, highlights, shadows and saturation, each on its own slider. Hold the compare button to see the original.
-
-### Crop
-
-Free or fixed aspect ratios, rotate, flip and resize. Straighten tilted photos, fix vertical and horizontal perspective, and zoom in while you crop.
-
-### Live text (OCR)
-
-Select and copy text straight from any image: screenshots, scanned pages, photos of signs, screens and documents. Blick finds the text by itself with [Tesseract](https://github.com/tesseract-ocr/tesseract), also when it is turned, tilted or slightly curved, and everything stays on your computer.
-
-It reads English, Spanish, French, German, Portuguese, Russian, Polish and Turkish, using your device language together with English.
+- **Viewer:** everything from Loupe, plus a floating strip of the photos in the folder.
+- **Video player:** subtitles, audio tracks, speed, repeat and resume, in the style of GNOME's video player.
+- **Video editing:** frame-accurate trimming, mute, rotate and smaller copies, plus Crop, Adjust and Markup.
+- **Markup:** brush, highlighter, shapes, arrows and text, in any colour, all editable later.
+- **Adjust:** brightness, contrast, highlights, shadows and saturation.
+- **Crop:** aspect ratios, rotate, flip, resize, straighten and perspective.
+- **Live text:** select and copy text from any image or paused video, offline with Tesseract.
+- **Undo and redo** across every edit, and **Save a Copy** or **Replace Original**.
+- **Translated** into Spanish, German, French, Brazilian Portuguese, Russian, Polish and Turkish.
 
 <img src="data/screenshots/live-text.webp" width="640" alt="Copying text from a photo of a recipe with Blick live text OCR">
-
-### And more
-
-- Undo and redo across every kind of edit.
-- Zoom inside the editor for detailed work.
-- **Save a Copy**, or **Replace Original** and move the old file to the trash.
-- Blick opens all your images and videos after its first start. **Make Default Image Viewer** and **Make Default Video Player** in the main menu set it again later.
-- The Flatpak and AppImage tell you about a new version once a day, with **Update** and **Later**.
-
-### Languages
-
-Blick is fully translated into Spanish, German, French, Brazilian Portuguese, Russian, Polish and Turkish. The viewer is also translated into the other 52 languages of Loupe.
 
 ## Install
 
