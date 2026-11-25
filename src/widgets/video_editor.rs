@@ -196,7 +196,6 @@ mod imp {
             self.show_hint(false);
 
             let panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
-            panel.add_css_class("glance-pill");
             panel.add_css_class("video-trim-panel");
             panel.set_margin_start(12);
             panel.set_margin_end(12);

@@ -196,6 +196,8 @@ mod imp {
         #[template_child]
         compare: TemplateChild<gtk::Button>,
         #[template_child]
+        history_pill: TemplateChild<gtk::Box>,
+        #[template_child]
         save_overwrite: TemplateChild<gtk::ListBoxRow>,
         #[template_child]
         pub(super) save_smaller: TemplateChild<gtk::ListBoxRow>,
@@ -347,6 +349,8 @@ mod imp {
                 move |switcher| {
                     let imp = obj.imp();
                     let name = switcher.active_name().unwrap_or_default();
+                    // Undo, redo and compare belong to the photo tabs
+                    imp.history_pill.set_visible(name != "video");
                     if name == "video" {
                         imp.content_stack.set_visible_child_name("video");
                     } else {
