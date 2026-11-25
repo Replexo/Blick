@@ -77,6 +77,8 @@ mod imp {
         pub(super) sound_button: gtk::MenuButton,
         /// The end time shows the time left instead of the length
         pub(super) show_remaining: Cell<bool>,
+        /// Played to the end; playing again starts over
+        pub(super) ended: Cell<bool>,
         /// Room kept below the controls for the folder strip
         pub(super) bottom_inset: Cell<i32>,
         /// Tell if the pointer rests on the buttons or the bottom bar
@@ -479,7 +481,21 @@ mod imp {
                 click.connect_pressed(clone!(
                     #[weak]
                     obj,
-                    move |gesture, n_press, x, _| obj.imp().clicked(gesture, n_press, x)
+                    move |gesture, n_press, x, y| {
+                        // Clicks on the buttons and the seek bar are theirs
+                        let on_control = gesture
+                            .widget()
+                            .and_then(|widget| widget.pick(x, y, gtk::PickFlags::DEFAULT))
+                            .is_some_and(|picked| {
+                                picked.is::<gtk::Button>()
+                                    || picked.is::<gtk::Scale>()
+                                    || picked.ancestor(gtk::Button::static_type()).is_some()
+                                    || picked.ancestor(gtk::Scale::static_type()).is_some()
+                            });
+                        if !on_control {
+                            obj.imp().clicked(gesture, n_press, x);
+                        }
+                    }
                 ));
                 widget.add_controller(click);
             }
@@ -1108,6 +1124,7 @@ mod imp {
                     } else {
                         forget_position(obj.file().as_ref());
                         obj.set_playing(false);
+                        self.ended.set(true);
                         obj.emit_by_name::<()>("ended", &[]);
                     }
                 }
@@ -1518,6 +1535,9 @@ impl LpVideoPlayer {
             return;
         }
 
+        if playing && imp.ended.get() {
+            self.seek_to(gst::ClockTime::ZERO);
+        }
         let was_playing = imp.playing.replace(playing);
         let state = if playing {
             gst::State::Playing
@@ -1653,6 +1673,7 @@ impl LpVideoPlayer {
 
     pub fn seek_to(&self, position: gst::ClockTime) {
         let imp = self.imp();
+        imp.ended.set(false);
         let Some(playbin) = imp.playbin.get() else {
             return;
         };
@@ -1848,7 +1869,9 @@ fn grab_frame(
                 .map(|duration| duration / 10)
         });
         if let Some(position) = position {
-            playbin.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT, position)?;
+            // The exact frame: the nearest keyframe can lie before or after
+            // the pointer, so moving along the seek bar would jump back
+            playbin.seek_simple(gst::SeekFlags::FLUSH | gst::SeekFlags::ACCURATE, position)?;
             let (state, ..) = playbin.state(timeout);
             state?;
         }
