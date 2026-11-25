@@ -806,11 +806,16 @@ impl LpImageView {
         let _ = imp.strip_animation.set(animation);
 
         // The folder loads after the first photo, so the strip shows when
-        // it appears
+        // it first appears; later only hovering the bottom shows it
+        let shown_once = std::cell::Cell::new(false);
         imp.folder_strip.connect_map(glib::clone!(
             #[weak(rename_to = obj)]
             self,
-            move |_| obj.show_folder_strip()
+            move |_| {
+                if !shown_once.replace(true) {
+                    obj.show_folder_strip();
+                }
+            }
         ));
 
         let motion = gtk::EventControllerMotion::new();
@@ -1099,7 +1104,10 @@ impl LpImageView {
     fn page_changed(&self) {
         self.update_videos();
         self.update_folder_strip();
-        self.show_folder_strip();
+        // Only hovering the bottom shows the strip; a video hides it
+        if self.current_video().is_some() {
+            self.show_folder_strip();
+        }
         self.notify_current_page();
         self.notify_is_next_available();
         self.notify_is_previous_available();
