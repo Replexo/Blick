@@ -229,3 +229,16 @@ popover.video-settings .setting-row {
 popover.video-settings separator {
   margin: 6px 0;
 }
+
+/* Subtitles drawn over the video */
+.video-subtitle {
+  color: white;
+  font-weight: 600;
+  text-shadow: 0 0 4px rgb(0 0 0 / 80%), 0 1px 2px rgb(0 0 0 / 90%);
+}
+
+.video-player button.speed {
+  min-width: 34px;
+  padding: 0 6px;
+  font-feature-settings: "tnum";
+}

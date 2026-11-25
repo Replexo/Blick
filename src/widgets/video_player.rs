@@ -52,8 +52,11 @@ const PREVIEW_GAP: i32 = 12;
 const RESUME_MARGIN: f64 = 5.;
 /// Subtitle files that are picked up next to a video
 pub const SUBTITLE_EXTENSIONS: [&str; 5] = ["srt", "vtt", "ass", "ssa", "sub"];
-/// Subtitle font sizes for small, medium and large
-const SUBTITLE_SIZES: [(&str, u32); 3] = [("small", 16), ("medium", 22), ("large", 30)];
+/// Subtitle text heights for small, medium and large, as parts of the
+/// video's height
+const SUBTITLE_SIZES: [(&str, f64); 3] = [("small", 0.045), ("medium", 0.06), ("large", 0.08)];
+/// A subtitle's text, if it is Pango markup, and how long it shows
+type Subtitle = (String, bool, Option<gst::ClockTime>);
 
 thread_local! {
     /// Volume and mute, shared by all videos
@@ -103,6 +106,17 @@ mod imp {
         pub(super) duration_label: gtk::Label,
         pub(super) seek: gtk::Scale,
         pub(super) tracks_button: RefCell<Option<gtk::MenuButton>>,
+        /// Shows the speed, opens the speeds
+        pub(super) speed_button: gtk::MenuButton,
+        /// Subtitles drawn over the picture, sharp at any size
+        pub(super) subtitle_label: gtk::Label,
+        /// Hides the subtitle when its time is over
+        pub(super) subtitle_timeout: RefCell<Option<glib::SourceId>>,
+        /// The subtitle's time ran out while paused
+        pub(super) subtitle_expired: Cell<bool>,
+        /// Text height as a part of the video's height, and in pixels
+        pub(super) subtitle_scale: Cell<f64>,
+        pub(super) subtitle_pixels: Cell<i32>,
         pub(super) volume_scale: gtk::Scale,
         pub(super) mute_button: gtk::ToggleButton,
         pub(super) actions: gio::SimpleActionGroup,
@@ -118,7 +132,6 @@ mod imp {
         pub(super) updating: Cell<bool>,
         pub(super) tick: RefCell<Option<glib::SourceId>>,
         pub(super) hide_timeout: RefCell<Option<glib::SourceId>>,
-        pub(super) click_timeout: RefCell<Option<glib::SourceId>>,
         pub(super) inhibit_cookie: Cell<u32>,
         /// The frame shown in the image belongs to this position
         pub(super) frame_position: Cell<Option<gst::ClockTime>>,
@@ -180,6 +193,7 @@ mod imp {
         fn constructed(&self) {
             self.parent_constructed();
             self.rate.set(1.);
+            self.subtitle_scale.set(SUBTITLE_SIZES[1].1);
             self.build_controls();
         }
 
@@ -193,7 +207,7 @@ mod imp {
             if let Some(source) = self.hide_timeout.take() {
                 source.remove();
             }
-            if let Some(source) = self.click_timeout.take() {
+            if let Some(source) = self.subtitle_timeout.take() {
                 source.remove();
             }
             self.bus_watch.take();
@@ -384,6 +398,9 @@ mod imp {
                         .and_then(|x| x.parse::<f64>().ok())
                     {
                         action.set_state(&rate.to_string().to_variant());
+                        if let Some(label) = obj.imp().speed_button.child().and_downcast::<gtk::Label>() {
+                            label.set_label(&speed_label(rate));
+                        }
                         obj.set_rate(rate);
                     }
                 }
@@ -404,6 +421,12 @@ mod imp {
 
             let settings = self.build_tracks_button();
             self.tracks_button.replace(Some(settings.clone()));
+            self.build_speed_button();
+
+            let repeat = gtk::ToggleButton::new();
+            repeat.set_icon_name("glance-repeat-symbolic");
+            repeat.set_action_name(Some("video.loop"));
+            repeat.set_tooltip_text(Some(&gettext("Repeat")));
 
             for button in [
                 backwards.upcast_ref::<gtk::Widget>(),
@@ -411,6 +434,8 @@ mod imp {
                 forwards.upcast_ref(),
                 self.sound_button.upcast_ref(),
                 settings.upcast_ref(),
+                self.speed_button.upcast_ref(),
+                repeat.upcast_ref(),
             ] {
                 button.add_css_class("circular");
                 button.add_css_class("highlighted");
@@ -423,8 +448,10 @@ mod imp {
             header.set_widget_name("bottom-overlay-box");
             header.set_valign(gtk::Align::End);
             header.append(&self.title_label);
-            header.append(&self.sound_button);
             header.append(&settings);
+            header.append(&self.speed_button);
+            header.append(&repeat);
+            header.append(&self.sound_button);
 
             let bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
             bottom.append(&header);
@@ -462,7 +489,7 @@ mod imp {
                 .borrow_mut()
                 .push(adw::TimedAnimation::new(&self.controls, 1., 1., 200, target));
 
-            for button in [&settings, &self.sound_button] {
+            for button in [&settings, &self.speed_button, &self.sound_button] {
                 button.connect_active_notify(clone!(
                     #[weak]
                     obj,
@@ -493,9 +520,10 @@ mod imp {
                 self.hover_areas.borrow_mut().push(motion);
             }
 
-            // Click plays and pauses, a double click toggles fullscreen and
-            // a double tap on the left or right third skips. The shade gets
-            // the clicks while the controls show.
+            // A double click toggles fullscreen and a double tap on the left
+            // or right third skips; playing and pausing is for the play
+            // button and Space. The shade gets the clicks while the
+            // controls show.
             for widget in [self.picture.upcast_ref::<gtk::Widget>(), clamp.upcast_ref()] {
                 let click = gtk::GestureClick::new();
                 click.connect_pressed(clone!(
@@ -759,8 +787,8 @@ mod imp {
             self.size_row
                 .replace(Some(setting_row(&gettext("Size"), &size_group)));
 
-            // The menu: a page of settings showing their values, each
-            // opening a short list; filled whenever it opens
+            // The menu: subtitle tracks and settings, and a page for audio
+            // tracks; filled whenever it opens
             self.settings_stack
                 .set_transition_type(gtk::StackTransitionType::SlideLeftRight);
             self.settings_stack.set_transition_duration(200);
@@ -782,12 +810,59 @@ mod imp {
                 }
             ));
             let button = gtk::MenuButton::new();
-            button.set_icon_name("glance-settings-symbolic");
+            button.set_icon_name("glance-subtitles-symbolic");
             button.set_halign(gtk::Align::End);
             button.set_direction(gtk::ArrowType::Up);
             button.set_popover(Some(&popover));
-            button.update_property(&[gtk::accessible::Property::Label(&gettext("Settings"))]);
+            button.set_tooltip_text(Some(&gettext("Subtitles")));
             button
+        }
+
+        /// Speed button showing the current speed, with a list of speeds
+        fn build_speed_button(&self) {
+            let obj = self.obj();
+            let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
+            let popover = gtk::Popover::new();
+            popover.add_css_class("menu");
+            popover.add_css_class("video-settings");
+            popover.set_child(Some(&list));
+            popover.connect_show(clone!(
+                #[weak]
+                obj,
+                #[weak]
+                list,
+                move |popover| {
+                    while let Some(child) = list.first_child() {
+                        list.remove(&child);
+                    }
+                    let rate = obj.rate();
+                    for speed in SPEEDS {
+                        let row = check_row(&speed_label(speed), (speed - rate).abs() < 0.01);
+                        row.connect_clicked(clone!(
+                            #[weak]
+                            obj,
+                            #[weak]
+                            popover,
+                            move |_| {
+                                obj.imp()
+                                    .actions
+                                    .activate_action("speed", Some(&speed.to_string().to_variant()));
+                                popover.popdown();
+                            }
+                        ));
+                        list.append(&row);
+                    }
+                }
+            ));
+            list.set_size_request(160, -1);
+            let button = &self.speed_button;
+            // A label child, so no menu arrow next to it
+            button.set_child(Some(&gtk::Label::new(Some(&speed_label(1.)))));
+            button.set_halign(gtk::Align::End);
+            button.set_direction(gtk::ArrowType::Up);
+            button.set_popover(Some(&popover));
+            button.set_tooltip_text(Some(&gettext("Speed")));
+            button.add_css_class("speed");
         }
 
         /// Builds the settings menu's pages with the current choices
@@ -872,56 +947,19 @@ mod imp {
                 .clone()
                 .or_else(|| audios.first().map(|(id, _)| id.clone()))
                 .unwrap_or_default();
-            let rate = state("speed").parse::<f64>().unwrap_or(1.);
             let name_of = |list: &[(String, String)], id: &str| {
                 list.iter().find(|(x, _)| x == id).map(|(_, name)| name.clone())
             };
 
-            // Main page
+            // Main page: subtitle tracks, a file, size and delay, then the
+            // audio tracks when there is a choice
             let main = page("main", None);
-            main.append(&opens(
-                &gettext("Subtitles"),
-                &name_of(&texts, &subtitle).unwrap_or_else(|| gettext("Off")),
-                "subtitles",
-            ));
-            if audios.len() > 1 {
-                main.append(&opens(
-                    &gettext("Audio"),
-                    &name_of(&audios, &audio).unwrap_or_default(),
-                    "audio",
-                ));
-            }
-            main.append(&opens(&gettext("Speed"), &speed_label(rate), "speed"));
-            let repeat = gtk::Switch::new();
-            repeat.set_active(self.looping.get());
-            repeat.set_valign(gtk::Align::Center);
-            repeat.set_can_focus(false);
-            repeat.set_can_target(false);
-            let repeat_row = menu_row(&gettext("Repeat"), None, false);
-            if let Some(content) = repeat_row.child().and_downcast::<gtk::Box>() {
-                content.append(&repeat);
-            }
-            repeat_row.update_property(&[gtk::accessible::Property::Label(&gettext("Repeat"))]);
-            repeat_row.connect_clicked(clone!(
-                #[weak]
-                obj,
-                #[weak]
-                repeat,
-                move |_| {
-                    obj.imp().actions.activate_action("loop", None);
-                    repeat.set_active(obj.imp().looping.get());
-                }
-            ));
-            main.append(&repeat_row);
-
-            // Subtitles: tracks, a file, then size and delay
-            let subtitles = page("subtitles", Some(&gettext("Subtitles")));
-            subtitles.append(&choice(&gettext("Off"), "subtitle", String::new(), subtitle.is_empty()));
+            main.append(&choice(&gettext("Off"), "subtitle", String::new(), subtitle.is_empty()));
             for (id, label) in texts {
                 let chosen = id == subtitle;
-                subtitles.append(&choice(&label, "subtitle", id, chosen));
+                main.append(&choice(&label, "subtitle", id, chosen));
             }
-            let add = check_row(&gettext("Add Subtitle File…"), false);
+            let add = menu_row(&gettext("Add Subtitle File…"), None, false);
             add.connect_clicked(clone!(
                 #[weak]
                 obj,
@@ -932,13 +970,21 @@ mod imp {
                     obj.imp().actions.activate_action("open-subtitles", None);
                 }
             ));
-            subtitles.append(&add);
-            subtitles.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+            main.append(&add);
+            main.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
             for row in [self.size_row.borrow().clone(), self.delay_row.borrow().clone()]
                 .into_iter()
                 .flatten()
             {
-                subtitles.append(&row);
+                main.append(&row);
+            }
+            if audios.len() > 1 {
+                main.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+                main.append(&opens(
+                    &gettext("Audio"),
+                    &name_of(&audios, &audio).unwrap_or_default(),
+                    "audio",
+                ));
             }
 
             if audios.len() > 1 {
@@ -947,12 +993,6 @@ mod imp {
                     let chosen = id == audio;
                     page.append(&choice(&label, "audio", id, chosen));
                 }
-            }
-
-            let speeds = page("speed", Some(&gettext("Speed")));
-            for speed in SPEEDS {
-                let chosen = (speed - rate).abs() < 0.01;
-                speeds.append(&choice(&speed_label(speed), "speed", speed.to_string(), chosen));
             }
         }
 
@@ -1004,8 +1044,9 @@ mod imp {
                     self.stream_ids(gst::StreamType::AUDIO).into_iter().take(1).map(|x| x.0),
                 ),
             }
-            if let Some(text) = self.text_stream.borrow().clone() {
-                ids.push(text);
+            match self.text_stream.borrow().clone() {
+                Some(text) => ids.push(text),
+                None => self.hide_subtitle(),
             }
             let playbin = playbin.clone();
             in_background(move || {
@@ -1014,17 +1055,102 @@ mod imp {
         }
 
         pub(super) fn apply_subtitle_size(&self, name: &str) {
-            let Some(playbin) = self.playbin.get() else {
-                return;
-            };
-            let points = SUBTITLE_SIZES
+            let scale = SUBTITLE_SIZES
                 .iter()
                 .find(|(n, _)| *n == name)
-                .map_or(22, |(_, points)| *points);
-            let playbin = playbin.clone();
-            in_background(move || {
-                playbin.set_property("subtitle-font-desc", format!("Sans {points}"));
-            });
+                .map_or(SUBTITLE_SIZES[1].1, |(_, scale)| *scale);
+            self.subtitle_scale.set(scale);
+            self.subtitle_pixels.set(0);
+            self.subtitle_label.queue_resize();
+        }
+
+        /// Shows a subtitle from the text sink, or hides it when empty
+        pub(super) fn show_subtitle(&self, (text, markup, duration): Subtitle) {
+            if let Some(source) = self.subtitle_timeout.take() {
+                source.remove();
+            }
+            self.subtitle_expired.set(false);
+            if text.is_empty() || self.text_stream.borrow().is_none() {
+                self.subtitle_label.set_visible(false);
+                return;
+            }
+            if markup {
+                self.subtitle_label.set_markup(&text);
+            } else {
+                self.subtitle_label.set_text(&text);
+            }
+            self.subtitle_label.set_visible(true);
+            let Some(duration) = duration else {
+                return;
+            };
+            let obj = self.obj();
+            let milliseconds = duration.mseconds() as f64 / self.rate.get().max(0.1);
+            let source = glib::timeout_add_local_once(
+                Duration::from_millis(milliseconds as u64),
+                clone!(
+                    #[weak]
+                    obj,
+                    move || {
+                        let imp = obj.imp();
+                        imp.subtitle_timeout.take();
+                        // Paused, it stays until playing goes on
+                        if imp.playing.get() {
+                            imp.subtitle_label.set_visible(false);
+                        } else {
+                            imp.subtitle_expired.set(true);
+                        }
+                    }
+                ),
+            );
+            self.subtitle_timeout.replace(Some(source));
+        }
+
+        pub(super) fn hide_subtitle(&self) {
+            if let Some(source) = self.subtitle_timeout.take() {
+                source.remove();
+            }
+            self.subtitle_label.set_visible(false);
+        }
+
+        /// Where the subtitle goes: centred near the bottom of the video,
+        /// with text sized to the video
+        pub(super) fn subtitle_position(&self, width: i32, height: i32) -> gdk::Rectangle {
+            let (video_width, video_height) = match self.obj().video_size() {
+                Some((w, h)) => {
+                    let zoom = f64::min(width as f64 / w as f64, height as f64 / h as f64);
+                    (w as f64 * zoom, h as f64 * zoom)
+                }
+                None => (width as f64, height as f64),
+            };
+            let pixels = (video_height * self.subtitle_scale.get()).round().max(12.) as i32;
+            if self.subtitle_pixels.replace(pixels) != pixels {
+                // Not while being laid out
+                let label = self.subtitle_label.clone();
+                glib::idle_add_local_once(move || {
+                    let attrs = gtk::pango::AttrList::new();
+                    attrs.insert(gtk::pango::AttrSize::new_size_absolute(
+                        pixels * gtk::pango::SCALE,
+                    ));
+                    label.set_attributes(Some(&attrs));
+                });
+            }
+            let max_width = (video_width * 0.9) as i32;
+            let (_, natural_width, _, _) =
+                self.subtitle_label.measure(gtk::Orientation::Horizontal, -1);
+            let label_width = natural_width.min(max_width).max(1);
+            let (_, label_height, _, _) = self
+                .subtitle_label
+                .measure(gtk::Orientation::Vertical, label_width);
+            let mut bottom = (height as f64 + video_height) / 2. - video_height * 0.06;
+            // Above the controls while they show
+            if self.controls_shown.get()
+                && let Some(overlay) = self.overlay.upgrade()
+                && let Some(bounds) = self.title_label.compute_bounds(&overlay)
+            {
+                bottom = bottom.min(bounds.y() as f64 - 12.);
+            }
+            let y = bottom - label_height as f64;
+            gdk::Rectangle::new((width - label_width) / 2, y as i32, label_width, label_height)
         }
 
         /// Moves subtitles by `milliseconds`, later for positive values
@@ -1100,10 +1226,6 @@ mod imp {
                     gdk::prelude::DeviceExt::source(&device) == gdk::InputSource::Touchscreen
                 });
 
-            if let Some(source) = self.click_timeout.take() {
-                source.remove();
-            }
-
             if n_press == 2 {
                 let width = self.picture.width() as f64;
                 if touch && x < width / 3. {
@@ -1113,30 +1235,9 @@ mod imp {
                 } else {
                     let _ = self.picture.activate_action("win.toggle-fullscreen", None);
                 }
-            } else if n_press == 1 {
-                if touch {
-                    // A tap shows the controls first
-                    if !self.controls_shown.get() {
-                        self.show_controls();
-                        return;
-                    }
-                }
-                // Wait for a possible second click
-                let delay = gtk::Settings::default()
-                    .map_or(400, |settings| settings.gtk_double_click_time())
-                    .max(100) as u64;
-                let source = glib::timeout_add_local_once(
-                    Duration::from_millis(delay),
-                    clone!(
-                        #[weak]
-                        obj,
-                        move || {
-                            obj.imp().click_timeout.take();
-                            obj.toggle_playing();
-                        }
-                    ),
-                );
-                self.click_timeout.replace(Some(source));
+            } else if n_press == 1 && touch && !self.controls_shown.get() {
+                // A tap shows the controls
+                self.show_controls();
             }
         }
 
@@ -1151,6 +1252,7 @@ mod imp {
                 return;
             }
             self.controls.set_can_target(shown);
+            self.subtitle_label.queue_resize();
             self.obj().emit_by_name::<()>("controls-shown", &[&shown]);
             let to = if shown { 1. } else { 0. };
             for fade in self.fades.borrow().iter() {
@@ -1180,6 +1282,7 @@ mod imp {
                             .iter()
                             .any(|motion| motion.contains_pointer());
                         let menu_open = imp.sound_button.is_active()
+                            || imp.speed_button.is_active()
                             || imp
                                 .tracks_button
                                 .borrow()
@@ -1462,9 +1565,27 @@ impl LpVideoPlayer {
 
         overlay.add_overlay(&imp.picture);
         overlay.add_overlay(&imp.controls);
+        overlay.add_overlay(&imp.subtitle_label);
         overlay.add_overlay(&imp.preview);
         imp.overlay.set(Some(overlay));
         overlay.set_measure_overlay(&imp.picture, false);
+
+        imp.subtitle_label.set_visible(false);
+        imp.subtitle_label.set_can_target(false);
+        imp.subtitle_label.set_wrap(true);
+        imp.subtitle_label.set_justify(gtk::Justification::Center);
+        imp.subtitle_label.add_css_class("video-subtitle");
+        overlay.connect_get_child_position(clone!(
+            #[weak]
+            obj,
+            #[upgrade_or]
+            None,
+            move |overlay, widget| {
+                let imp = obj.imp();
+                (widget == imp.subtitle_label.upcast_ref::<gtk::Widget>())
+                    .then(|| imp.subtitle_position(overlay.width(), overlay.height()))
+            }
+        ));
 
         let motion = gtk::EventControllerMotion::new();
         motion.set_propagation_phase(gtk::PropagationPhase::Capture);
@@ -1531,6 +1652,18 @@ impl LpVideoPlayer {
         let uri = file.uri().to_string();
         let subtitle = subtitle.map(|file| file.uri().to_string());
         let video_sink_element = sink.clone();
+        // Subtitles come as text and are drawn by GTK, so they stay sharp
+        // when the video is shown larger than it is
+        let (subtitle_sender, subtitle_receiver) = async_channel::unbounded::<Subtitle>();
+        glib::spawn_future_local(clone!(
+            #[weak(rename_to = obj)]
+            self,
+            async move {
+                while let Ok(subtitle) = subtitle_receiver.recv().await {
+                    obj.imp().show_subtitle(subtitle);
+                }
+            }
+        ));
 
         glib::spawn_future_local(clone!(
             #[weak(rename_to = obj)]
@@ -1558,7 +1691,33 @@ impl LpVideoPlayer {
                     if let Some(subtitle) = &subtitle {
                         playbin.set_property("suburi", subtitle.as_str());
                     }
-                    playbin.set_property("subtitle-font-desc", "Sans 22");
+                    if let Ok(text_sink) = gst::ElementFactory::make("fakesink")
+                        .property("sync", true)
+                        .property("signal-handoffs", true)
+                        .build()
+                    {
+                        for signal in ["handoff", "preroll-handoff"] {
+                            let sender = subtitle_sender.clone();
+                            text_sink.connect(signal, false, move |args| {
+                                let buffer = args[1].get::<gst::Buffer>().ok()?;
+                                let caps = args[2].get::<gst::Pad>().ok()?.current_caps()?;
+                                let structure = caps.structure(0)?;
+                                if structure.name() != "text/x-raw" {
+                                    return None;
+                                }
+                                let markup = structure
+                                    .get::<&str>("format")
+                                    .is_ok_and(|format| format == "pango-markup");
+                                let map = buffer.map_readable().ok()?;
+                                let text = String::from_utf8_lossy(&map)
+                                    .trim_matches(|c: char| c == '\0' || c.is_whitespace())
+                                    .to_owned();
+                                let _ = sender.try_send((text, markup, buffer.duration()));
+                                None
+                            });
+                        }
+                        playbin.set_property("text-sink", &text_sink);
+                    }
                     // Keep the pitch when playing faster or slower
                     if let Ok(scaletempo) = gst::ElementFactory::make("scaletempo").build() {
                         playbin.set_property("audio-filter", &scaletempo);
@@ -1745,6 +1904,9 @@ impl LpVideoPlayer {
         set_state_in_background(playbin, state);
 
         if playing {
+            if imp.subtitle_expired.take() {
+                imp.subtitle_label.set_visible(false);
+            }
             imp.picture.set_visible(true);
             imp.frame_position.set(None);
             if let Some(image) = imp.image.borrow().as_ref() {
@@ -1881,6 +2043,7 @@ impl LpVideoPlayer {
         };
         seek_in_background(playbin, &imp.seek_generation, imp.rate.get(), position);
         imp.position_label.set_label(&format_time(position));
+        imp.hide_subtitle();
     }
 
     fn set_rate(&self, rate: f64) {
@@ -2437,4 +2600,5 @@ mod tests {
         assert_eq!(format_time(gst::ClockTime::from_seconds(3725)), "1:02:05");
     }
 }
+
 

@@ -49,6 +49,8 @@ impl imp::LpImage {
         let widget_aspect_ratio = available_width / available_height;
 
         let max_zoom_factor = match self.fit_mode.get() {
+            // Video frames fill the view like the playing video
+            _ if self.video_frame.get() => f64::MAX,
             // Do not allow to zoom larger than original size
             FitMode::BestFit | FitMode::ExactVolatile => 1.,
             // Allow arbitrary zoom
