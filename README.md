@@ -6,17 +6,21 @@
 
 # Blick
 
-**Image viewer and photo editor for Linux**
+**Image viewer, video player and photo editor for Linux**
+
+*Previously Glance*
 
 [![Latest release](https://img.shields.io/github/v/release/Replexo/Blick?label=release)](https://github.com/Replexo/Blick/releases/latest)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](COPYING.md)
 [![GTK 4 and libadwaita](https://img.shields.io/badge/GTK%204-libadwaita-4a86cf)](https://gtk.org)
 
-<img src="data/screenshots/promo.webp" width="800" alt="Blick image viewer and photo editor marking up, adjusting and cropping a photo on Linux">
+<img src="data/screenshots/promo.webp" width="800" alt="Blick marking up, adjusting and cropping a photo, then trimming a video, on Linux">
 
 </div>
 
 Blick is a fast image viewer, video player and photo and video editor for Linux and GNOME. Open a picture, annotate it, adjust its colours, crop it, copy the text in it, and save, all in the same window. Videos play in the same window and can be trimmed, muted, rotated and saved smaller. It is a fork of [Loupe](https://gitlab.gnome.org/GNOME/loupe), the GNOME image viewer, so browsing stays fast, sandboxed and touch-friendly.
+
+Blick was called **Glance** up to version 1.2. Installing Blick replaces Glance: the files Glance opened open in Blick, and the Flatpak takes Glance's settings along.
 
 Blick runs on any Linux desktop and comes as a Flatpak, an AppImage, and packages for Debian and Ubuntu, Fedora and Arch Linux.
 
@@ -26,13 +30,15 @@ Blick runs on any Linux desktop and comes as a Flatpak, an AppImage, and package
 
 Everything you know from Loupe: fast and sandboxed image loading, smooth zoom and gestures, image metadata, printing and setting a picture as the background.
 
-Small thumbnails float over the bottom of the photo to jump to the other photos and videos in the folder. They show when you move the pointer to the bottom or change photo, and fade away after a few seconds.
+Small thumbnails float over the bottom of the photo, on a soft shade, to jump to the other photos in the folder. They show when you move the pointer to the bottom and fade away after a few seconds. The arrow keys and swipes move between photos, and between videos when a video is open.
+
+Windows open centred, at most 60% of the screen, and keep their size as you move between files.
 
 ### Videos
 
-Videos open next to your photos and play with GStreamer. Seek with a frame preview, skip ten seconds with the arrow keys, step through single frames, change the speed, loop, and pick up where you left off. When paused, zoom in, copy the frame, or select its text with live text.
+Videos play like in GNOME's video player: edge to edge, under a see-through header that fades away with the controls. Seek with a frame preview, skip ten seconds, step through single frames, change the speed, repeat, and pick up where you left off. Playing and pausing is for the play button and <kbd>Space</kbd>, so a click on the picture never stops it by accident. When paused, zoom in, copy the frame, or select its text with live text.
 
-Subtitles with the same name as the video load by themselves. Pick subtitle and audio tracks, the subtitle size and delay in one menu, or open other subtitle files.
+Subtitles with the same name as the video load by themselves and stay sharp at any size. The **CC** button picks subtitle and audio tracks, the subtitle size and delay, or other subtitle files.
 
 Motion photos from Google, Samsung and iPhone Live Photos get a small play button for their moving part.
 
@@ -69,8 +75,8 @@ It reads English, Spanish, French, German, Portuguese, Russian, Polish and Turki
 - Undo and redo across every kind of edit.
 - Zoom inside the editor for detailed work.
 - **Save a Copy**, or **Replace Original** and move the old file to the trash.
-- **Make Default Image Viewer** and **Make Default Video Player** in the main menu.
-- The Flatpak and AppImage can check for new versions from the main menu.
+- Blick opens all your images and videos after its first start. **Make Default Image Viewer** and **Make Default Video Player** in the main menu set it again later.
+- The Flatpak and AppImage tell you about a new version once a day, with **Update** and **Later**.
 
 ### Languages
 
@@ -82,15 +88,19 @@ Download the file for your system from the [latest release](https://github.com/R
 
 | System | File | Install |
 |---|---|---|
-| Any Linux (Flatpak) | [`Blick-1.2-x86_64.flatpak`](https://github.com/Replexo/Blick/releases/latest/download/Blick-1.2-x86_64.flatpak) | `flatpak install --user Blick-1.2-x86_64.flatpak` |
-| Any Linux (AppImage) | [`Blick-1.2-x86_64.AppImage`](https://github.com/Replexo/Blick/releases/latest/download/Blick-1.2-x86_64.AppImage) | `chmod +x Blick-1.2-x86_64.AppImage`, then run it |
-| Ubuntu 25.10 and newer | [`blick_1.2_amd64.deb`](https://github.com/Replexo/Blick/releases/latest/download/blick_1.2_amd64.deb) | `sudo apt install ./blick_1.2_amd64.deb` |
-| Fedora 43 and newer | [`blick-1.2-1.fc43.x86_64.rpm`](https://github.com/Replexo/Blick/releases/latest/download/blick-1.2-1.fc43.x86_64.rpm) | `sudo dnf install ./blick-1.2-1.fc43.x86_64.rpm` |
-| Arch Linux | [`blick-1.2-1-x86_64.pkg.tar.zst`](https://github.com/Replexo/Blick/releases/latest/download/blick-1.2-1-x86_64.pkg.tar.zst) | `sudo pacman -U blick-1.2-1-x86_64.pkg.tar.zst` |
+| Any Linux (Flatpak) | [`Blick-1.3-x86_64.flatpak`](https://github.com/Replexo/Blick/releases/latest/download/Blick-1.3-x86_64.flatpak) | `flatpak install --user Blick-1.3-x86_64.flatpak` |
+| Any Linux (AppImage) | [`Blick-1.3-x86_64.AppImage`](https://github.com/Replexo/Blick/releases/latest/download/Blick-1.3-x86_64.AppImage) | `chmod +x Blick-1.3-x86_64.AppImage`, then run it |
+| Ubuntu 25.10 and newer | [`blick_1.3_amd64.deb`](https://github.com/Replexo/Blick/releases/latest/download/blick_1.3_amd64.deb) | `sudo apt install ./blick_1.3_amd64.deb` |
+| Fedora 43 and newer | [`blick-1.3-1.fc43.x86_64.rpm`](https://github.com/Replexo/Blick/releases/latest/download/blick-1.3-1.fc43.x86_64.rpm) | `sudo dnf install ./blick-1.3-1.fc43.x86_64.rpm` |
+| Arch Linux | [`blick-1.3-1-x86_64.pkg.tar.zst`](https://github.com/Replexo/Blick/releases/latest/download/blick-1.3-1-x86_64.pkg.tar.zst) | `sudo pacman -U blick-1.3-1-x86_64.pkg.tar.zst` |
 
 The Flatpak uses the GNOME 51 runtime, which Flatpak downloads from [Flathub](https://flathub.org/setup) if you don't have it yet. Blick is coming to Flathub itself soon, with automatic updates. You can check your download against `SHA256SUMS` on the release page.
 
 To build it yourself instead, see [Build from source](#build-from-source).
+
+### Coming from Glance
+
+Install Blick, start it once, and it takes over the files Glance opened. Remove Glance afterwards, for example with `flatpak uninstall io.github.Replexo.Glance` or your package manager.
 
 ### Privacy and network access
 
