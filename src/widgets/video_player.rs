@@ -427,6 +427,14 @@ mod imp {
             repeat.set_icon_name("glance-repeat-symbolic");
             repeat.set_action_name(Some("video.loop"));
             repeat.set_tooltip_text(Some(&gettext("Repeat")));
+            // The icon tells if repeat is on
+            repeat.connect_toggled(|button| {
+                button.set_icon_name(if button.is_active() {
+                    "glance-repeat-one-symbolic"
+                } else {
+                    "glance-repeat-symbolic"
+                });
+            });
 
             for button in [
                 backwards.upcast_ref::<gtk::Widget>(),
@@ -857,12 +865,13 @@ mod imp {
             list.set_size_request(160, -1);
             let button = &self.speed_button;
             // A label child, so no menu arrow next to it
-            button.set_child(Some(&gtk::Label::new(Some(&speed_label(1.)))));
+            let label = gtk::Label::new(Some(&speed_label(1.)));
+            label.add_css_class("speed");
+            button.set_child(Some(&label));
             button.set_halign(gtk::Align::End);
             button.set_direction(gtk::ArrowType::Up);
             button.set_popover(Some(&popover));
             button.set_tooltip_text(Some(&gettext("Speed")));
-            button.add_css_class("speed");
         }
 
         /// Builds the settings menu's pages with the current choices

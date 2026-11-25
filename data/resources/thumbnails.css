@@ -93,6 +93,7 @@ lpthumbnailstrip.compact .current .thumbnail {
 }
 
 .video-player button.highlighted,
+.video-player button.highlighted:checked,
 .video-player menubutton.highlighted > button {
   background-color: transparent;
 }
@@ -100,15 +101,6 @@ lpthumbnailstrip.compact .current .thumbnail {
 .video-player button.highlighted:hover,
 .video-player menubutton.highlighted > button:hover {
   background-color: alpha(white, 0.15);
-}
-
-/* Repeat while it is on */
-.video-player button.highlighted:checked {
-  background-color: alpha(white, 0.25);
-}
-
-.video-player button.highlighted:checked:hover {
-  background-color: alpha(white, 0.32);
 }
 
 .video-player scale.highlighted slider:hover {
@@ -246,8 +238,9 @@ popover.video-settings separator {
   text-shadow: 0 0 4px rgb(0 0 0 / 80%), 0 1px 2px rgb(0 0 0 / 90%);
 }
 
-.video-player button.speed {
-  min-width: 34px;
-  padding: 0 6px;
+/* Sized like the icons beside it */
+.video-player label.speed {
+  font-size: 12px;
+  font-weight: 800;
   font-feature-settings: "tnum";
 }
