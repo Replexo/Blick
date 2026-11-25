@@ -36,7 +36,9 @@ Blick runs on any Linux desktop and comes as a Flatpak, an AppImage, and package
 - **Undo and redo** across every edit, and **Save a Copy** or **Replace Original**.
 - **Translated** into Spanish, German, French, Brazilian Portuguese, Russian, Polish and Turkish.
 
-<img src="data/screenshots/live-text.webp" width="640" alt="Copying text from a photo of a recipe with Blick live text OCR">
+<p align="center">
+  <img src="data/screenshots/live-text.webp" width="640" alt="Copying text from a photo of a recipe with Blick live text OCR">
+</p>
 
 ## Install
 
