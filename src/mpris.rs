@@ -112,7 +112,8 @@ pub fn set_player(player: Option<&LpVideoPlayer>) {
             OWNER.set(Some(id));
         }
         (false, Some(id)) => {
-            gio::bus_unown_name(id);
+            // Releasing the name waits for the bus, so not on the main thread
+            std::thread::spawn(move || gio::bus_unown_name(id));
             CONNECTION.take();
         }
         (_, owner) => OWNER.set(owner),

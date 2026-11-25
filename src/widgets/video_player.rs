@@ -82,6 +82,8 @@ mod imp {
         pub(super) ended: Cell<bool>,
         /// Subtitle delay in nanoseconds
         pub(super) subtitle_offset: Cell<i64>,
+        /// Asked to play or pause before the pipeline was ready
+        pub(super) pending_playing: Cell<Option<bool>>,
         /// Counts seeks, so only the newest one runs
         pub(super) seek_generation: Arc<AtomicU64>,
         /// Room kept below the controls for the folder strip
@@ -1410,6 +1412,9 @@ mod imp {
             let Some(image) = self.image.borrow().clone() else {
                 return;
             };
+            if !self.active.get() {
+                return;
+            }
             let position = self.position();
             if self.playing.get() || position.is_none() || self.frame_position.get() == position
             {
@@ -1481,21 +1486,20 @@ impl LpVideoPlayer {
         imp.page_motion.replace(Some(motion));
 
         if let Err(err) = obj.build_pipeline(file) {
-            let description = gettext(
-                "Video playback is not available. The GStreamer “playbin3” and “gtk4paintablesink” elements are needed.",
-            );
+            let details = err.to_string();
             glib::idle_add_local_once(clone!(
                 #[weak]
                 obj,
-                move || {
-                    obj.emit_by_name::<()>("error", &[&description, &err.to_string()]);
-                }
+                move || obj.report_missing_playback(&details)
             ));
         }
 
         obj
     }
 
+    /// The sink and its paintable are made here, as they belong to the main
+    /// thread; the rest of the pipeline is put together on a worker thread,
+    /// as linking the GL elements takes a while
     fn build_pipeline(&self, file: &gio::File) -> anyhow::Result<()> {
         let imp = self.imp();
 
@@ -1514,65 +1518,100 @@ impl LpVideoPlayer {
                 }
             }
         ));
-
-        // Use OpenGL when the sink offers a context
-        let video_sink = if paintable
+        let gl = paintable
             .property::<Option<gdk::GLContext>>("gl-context")
-            .is_some()
-        {
-            gst::ElementFactory::make("glsinkbin")
-                .property("sink", &sink)
-                .build()
-                .unwrap_or(sink.clone())
-        } else {
-            sink.clone()
-        };
-
-        let playbin = gst::ElementFactory::make("playbin3")
-            .property("uri", file.uri().as_str())
-            .property("video-sink", &video_sink)
-            .build()?;
-
-        // Turned as the video's rotation metadata says, like phone videos
-        if let Ok(flip) = gst::ElementFactory::make("videoflip").build() {
-            flip.set_property_from_str("video-direction", "auto");
-            playbin.set_property("video-filter", &flip);
-        }
+            .is_some();
 
         // Subtitles with the same name as the video
-        if let Some(subtitle) = sidecar_subtitle(file) {
-            playbin.set_property("suburi", subtitle.uri().as_str());
-            imp.subtitle_file.replace(Some(subtitle));
+        let subtitle = sidecar_subtitle(file);
+        if let Some(subtitle) = &subtitle {
+            imp.subtitle_file.replace(Some(subtitle.clone()));
             imp.select_new_subtitle.set(true);
         }
-        imp.apply_subtitle_size("medium");
+        let uri = file.uri().to_string();
+        let subtitle = subtitle.map(|file| file.uri().to_string());
+        let video_sink_element = sink.clone();
 
-        // Keep the pitch when playing faster or slower
-        if let Ok(scaletempo) = gst::ElementFactory::make("scaletempo").build() {
-            playbin.set_property("audio-filter", &scaletempo);
-        }
-
-        let bus = playbin.bus().ok_or_else(|| anyhow::anyhow!("No bus"))?;
-        let guard = bus.add_watch_local(clone!(
+        glib::spawn_future_local(clone!(
             #[weak(rename_to = obj)]
             self,
-            #[upgrade_or]
-            glib::ControlFlow::Break,
-            move |_, message| {
-                obj.imp().on_message(message);
-                glib::ControlFlow::Continue
+            async move {
+                let built = gio::spawn_blocking(move || -> anyhow::Result<gst::Element> {
+                    // Use OpenGL when the sink offers a context
+                    let video_sink = if gl {
+                        gst::ElementFactory::make("glsinkbin")
+                            .property("sink", &sink)
+                            .build()
+                            .unwrap_or(sink.clone())
+                    } else {
+                        sink.clone()
+                    };
+                    let playbin = gst::ElementFactory::make("playbin3")
+                        .property("uri", uri.as_str())
+                        .property("video-sink", &video_sink)
+                        .build()?;
+                    // Turned as the video's rotation metadata says, like phone videos
+                    if let Ok(flip) = gst::ElementFactory::make("videoflip").build() {
+                        flip.set_property_from_str("video-direction", "auto");
+                        playbin.set_property("video-filter", &flip);
+                    }
+                    if let Some(subtitle) = &subtitle {
+                        playbin.set_property("suburi", subtitle.as_str());
+                    }
+                    playbin.set_property("subtitle-font-desc", "Sans 22");
+                    // Keep the pitch when playing faster or slower
+                    if let Ok(scaletempo) = gst::ElementFactory::make("scaletempo").build() {
+                        playbin.set_property("audio-filter", &scaletempo);
+                    }
+                    // Shows the first frame
+                    playbin.set_state(gst::State::Paused)?;
+                    Ok(playbin)
+                })
+                .await;
+                let imp = obj.imp();
+                let playbin = match built {
+                    Ok(Ok(playbin)) => playbin,
+                    Ok(Err(err)) => {
+                        obj.report_missing_playback(&err.to_string());
+                        return;
+                    }
+                    Err(_) => {
+                        obj.report_missing_playback("The pipeline thread failed");
+                        return;
+                    }
+                };
+                // Messages sent meanwhile wait on the bus
+                if let Some(bus) = playbin.bus()
+                    && let Ok(guard) = bus.add_watch_local(clone!(
+                        #[weak]
+                        obj,
+                        #[upgrade_or]
+                        glib::ControlFlow::Break,
+                        move |_, message| {
+                            obj.imp().on_message(message);
+                            glib::ControlFlow::Continue
+                        }
+                    ))
+                {
+                    imp.bus_watch.replace(Some(guard));
+                }
+                let _ = imp.video_sink.set(video_sink_element);
+                let _ = imp.playbin.set(playbin);
+                imp.apply_volume();
+                // Playing was asked for before the pipeline was ready
+                if let Some(playing) = imp.pending_playing.take() {
+                    obj.set_playing(playing);
+                }
             }
-        ))?;
-        imp.bus_watch.replace(Some(guard));
-
-        let _ = imp.video_sink.set(sink);
-        let _ = imp.playbin.set(playbin.clone());
-        imp.apply_volume();
-
-        // Shows the first frame
-        playbin.set_state(gst::State::Paused)?;
-
+        ));
         Ok(())
+    }
+
+    fn report_missing_playback(&self, details: &str) {
+        let description = gettext(
+            "Video playback is not available. The GStreamer “playbin3” and “gtk4paintablesink” elements are needed.",
+        );
+        self.emit_by_name::<()>("error", &[&description, &details.to_string()]);
     }
 
     pub fn file(&self) -> Option<gio::File> {
@@ -1686,6 +1725,8 @@ impl LpVideoPlayer {
     pub fn set_playing(&self, playing: bool) {
         let imp = self.imp();
         let Some(playbin) = imp.playbin.get() else {
+            // The pipeline is still being made; it starts once ready
+            imp.pending_playing.set(Some(playing));
             return;
         };
         if playing && !imp.active.get() {
@@ -1739,7 +1780,10 @@ impl LpVideoPlayer {
             }
             if was_playing {
                 imp.save_position();
-                // Pausing sends no new frame, so the shown one goes to the image
+            }
+            // Pausing sends no new frame, so the shown one goes to the image;
+            // not for a video being left, the copy would only cost time
+            if was_playing && imp.active.get() {
                 glib::timeout_add_local_once(
                     Duration::from_millis(100),
                     clone!(
@@ -2241,6 +2285,7 @@ fn store_position(file: Option<&gio::File>, position: Option<f64>) {
 fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
 }
+
 
 
 

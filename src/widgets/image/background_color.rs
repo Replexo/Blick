@@ -64,6 +64,12 @@ impl imp::LpImage {
             return None;
         }
 
+        // Video frames are never see-through; rendering a large frame to
+        // look would hold up the main thread
+        if self.video_frame.get() {
+            return Some(Self::default_background_color());
+        }
+
         // Shortcut for formats that don't support transparency
         if !obj.metadata().is_potentially_transparent() {
             tracing::trace!("This format does not support transparency");
