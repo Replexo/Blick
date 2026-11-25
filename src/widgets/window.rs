@@ -78,6 +78,8 @@ mod imp {
         layout_name: RefCell<String>,
         #[property(get, set)]
         not_fullscreened: Cell<bool>,
+        /// The window took the size of the first video
+        pub(super) sized_for_video: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -229,7 +231,48 @@ impl LpWindow {
             };
 
             self.set_default_size(width, height);
+        } else if let Some((width, height)) =
+            self.image_view().current_video().and_then(|video| video.video_size())
+        {
+            self.imp().sized_for_video.set(true);
+            let (width, height) = self.fit_to_display(width, height);
+            self.set_default_size(width, height);
         }
+    }
+
+    /// The first video's size became known; the window takes it unless it
+    /// already showed something else
+    pub fn video_size_known(&self) {
+        if !self.imp().sized_for_video.get() && !self.is_maximized() && !self.is_fullscreen() {
+            self.resize_default();
+        }
+    }
+
+    /// Window size for a video of `width` × `height`, as large as the video
+    /// but within the display, and at least the smallest window size
+    fn fit_to_display(&self, width: i32, height: i32) -> (i32, i32) {
+        // The header bar above the video
+        const CHROME: i32 = 47;
+        let display = WidgetExt::display(self);
+        let monitor = gtk::prelude::NativeExt::surface(self)
+            .and_then(|surface| display.monitor_at_surface(&surface))
+            .or_else(|| {
+                display
+                    .monitors()
+                    .item(0)
+                    .and_downcast::<gdk::Monitor>()
+            });
+        let (max_width, max_height) = monitor.map_or((width, height + CHROME), |monitor| {
+            let area = monitor.geometry();
+            (area.width(), area.height())
+        });
+        let scale = (max_width as f64 / width as f64)
+            .min((max_height - CHROME) as f64 / height as f64)
+            .min(1.);
+        (
+            ((width as f64 * scale).round() as i32).max(MIN_WIDTH),
+            ((height as f64 * scale).round() as i32 + CHROME).max(MIN_HEIGHT),
+        )
     }
 
     pub fn add_toast(&self, toast: adw::Toast) {

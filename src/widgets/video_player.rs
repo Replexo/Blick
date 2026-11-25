@@ -46,7 +46,7 @@ const SPEEDS: [f64; 6] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
 /// Width of the frame preview over the seek bar
 const PREVIEW_WIDTH: i32 = 112;
 /// Space between the seek bar and the frame preview above it
-const PREVIEW_GAP: i32 = 4;
+const PREVIEW_GAP: i32 = 12;
 /// Positions closer than this to the start or end are not remembered
 const RESUME_MARGIN: f64 = 5.;
 /// Subtitle files that are picked up next to a video
@@ -77,6 +77,8 @@ mod imp {
         pub(super) sound_button: gtk::MenuButton,
         /// The end time shows the time left instead of the length
         pub(super) show_remaining: Cell<bool>,
+        /// Room kept below the controls for the folder strip
+        pub(super) bottom_inset: Cell<i32>,
         /// Tell if the pointer rests on the buttons or the bottom bar
         pub(super) hover_areas: RefCell<Vec<gtk::EventControllerMotion>>,
         /// Pointer movement anywhere on the page, also over a paused frame
@@ -157,6 +159,10 @@ mod imp {
                         .build(),
                     // The video played to its end
                     Signal::builder("ended").build(),
+                    // The controls show or hide
+                    Signal::builder("controls-shown")
+                        .param_types([bool::static_type()])
+                        .build(),
                 ]
             })
         }
@@ -230,8 +236,6 @@ mod imp {
             let controls_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
             controls_box.set_halign(gtk::Align::Center);
             controls_box.set_valign(gtk::Align::Center);
-            controls_box.set_vexpand(true);
-            controls_box.set_margin_top(48);
             controls_box.append(&backwards);
             controls_box.append(&self.play_button);
             controls_box.append(&forwards);
@@ -420,14 +424,19 @@ mod imp {
             toolbar.set_margin_start(12);
             toolbar.set_margin_end(12);
             toolbar.set_margin_bottom(12);
-            toolbar.append(&controls_box);
+            toolbar.set_valign(gtk::Align::End);
             toolbar.append(&bottom);
-            toolbar.insert_action_group("video", Some(&self.actions));
+
+            // The play buttons sit in the middle of the whole page
+            let layer = gtk::Overlay::new();
+            layer.set_child(Some(&toolbar));
+            layer.add_overlay(&controls_box);
+            layer.insert_action_group("video", Some(&self.actions));
 
             let clamp = adw::Clamp::new();
             clamp.set_maximum_size(1920);
             clamp.set_tightening_threshold(1920);
-            clamp.set_child(Some(&toolbar));
+            clamp.set_child(Some(&layer));
             clamp.add_css_class("shade");
             clamp.add_css_class("video-player");
 
@@ -981,6 +990,7 @@ mod imp {
                 return;
             }
             self.controls.set_can_target(shown);
+            self.obj().emit_by_name::<()>("controls-shown", &[&shown]);
             let to = if shown { 1. } else { 0. };
             for fade in self.fades.borrow().iter() {
                 let from = fade.widget().opacity();
@@ -1323,6 +1333,18 @@ impl LpVideoPlayer {
         let sink = gst::ElementFactory::make("gtk4paintablesink").build()?;
         let paintable = sink.property::<gdk::Paintable>("paintable");
         imp.picture.set_paintable(Some(&paintable));
+        // The window opens at the video's size once it is known
+        paintable.connect_invalidate_size(clone!(
+            #[weak(rename_to = obj)]
+            self,
+            move |_| {
+                if obj.is_active()
+                    && let Some(window) = obj.imp().picture.root().and_downcast::<crate::widgets::LpWindow>()
+                {
+                    window.video_size_known();
+                }
+            }
+        ));
 
         // Use OpenGL when the sink offers a context
         let video_sink = if paintable
@@ -1434,8 +1456,32 @@ impl LpVideoPlayer {
     }
 
     /// Room kept free below the controls, for the folder strip
+    /// Size of the video's frames, once the first one is decoded
+    pub fn video_size(&self) -> Option<(i32, i32)> {
+        let paintable = self.imp().picture.paintable()?;
+        let (width, height) = (paintable.intrinsic_width(), paintable.intrinsic_height());
+        (width > 0 && height > 0).then_some((width, height))
+    }
+
+    pub fn bottom_inset(&self) -> i32 {
+        self.imp().bottom_inset.get()
+    }
+
     pub fn set_bottom_inset(&self, inset: i32) {
-        self.imp().controls.set_margin_bottom(inset);
+        self.imp().bottom_inset.set(inset);
+        // Inside the shade, so the shade still reaches the bottom; the
+        // strip's own padding is enough space
+        if let Some(toolbar) = self
+            .imp()
+            .controls
+            .child()
+            .and_downcast::<adw::Clamp>()
+            .and_then(|clamp| clamp.child())
+            .and_downcast::<gtk::Overlay>()
+            .and_then(|layer| layer.child())
+        {
+            toolbar.set_margin_bottom((inset - 12).max(12));
+        }
     }
 
     pub fn duration(&self) -> Option<gst::ClockTime> {
@@ -1715,6 +1761,25 @@ impl LpVideoPlayer {
                 f(obj, description, details)
             }),
         );
+    }
+
+    pub fn connect_controls_shown<F: Fn(&Self, bool) + 'static>(&self, f: F) {
+        self.connect_closure(
+            "controls-shown",
+            false,
+            glib::closure_local!(move |obj: &Self, shown: bool| f(obj, shown)),
+        );
+    }
+
+    /// Shows the controls, as moving the pointer does
+    pub fn show_controls(&self) {
+        self.imp().show_controls();
+    }
+
+    /// The controls stay while the pointer rests on what `motion` watches,
+    /// like the folder strip
+    pub fn add_hover_area(&self, motion: &gtk::EventControllerMotion) {
+        self.imp().hover_areas.borrow_mut().push(motion.clone());
     }
 
     pub fn connect_ended<F: Fn(&Self) + 'static>(&self, f: F) {

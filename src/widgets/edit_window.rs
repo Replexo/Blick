@@ -1223,8 +1223,21 @@ impl LpEditWindow {
         content.set_use_underline(true);
         toggle.set_child(Some(&content));
         switcher.add(toggle);
+        // A removed toggle still belongs to the group, so the photo tabs
+        // come back as copies
         for tab in photo_tabs {
-            switcher.add(tab);
+            let copy = adw::Toggle::new();
+            copy.set_name(Some(&tab.name()));
+            copy.set_label(tab.label().as_deref());
+            copy.set_icon_name(tab.icon_name().as_deref());
+            copy.set_tooltip(&tab.tooltip());
+            copy.set_use_underline(tab.uses_underline());
+            copy.set_enabled(tab.is_enabled());
+            if let Some(child) = tab.child() {
+                tab.set_child(None::<&gtk::Widget>);
+                copy.set_child(Some(&child));
+            }
+            switcher.add(copy);
         }
         switcher.set_active_name(Some("video"));
 

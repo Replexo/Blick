@@ -166,10 +166,10 @@ lpthumbnailstrip.compact .current .thumbnail {
     alpha(black, 0.2) 10%,
     alpha(black, 0.15) 20%,
     alpha(black, 0.1) 30%,
-    alpha(black, 0.1) 65%,
-    alpha(black, 0.15) 75%,
-    alpha(black, 0.25) 85%,
-    alpha(black, 0.4) 100%
+    alpha(black, 0.1) 60%,
+    alpha(black, 0.25) 75%,
+    alpha(black, 0.45) 88%,
+    alpha(black, 0.65) 100%
   );
 }
 
