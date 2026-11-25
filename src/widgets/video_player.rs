@@ -319,7 +319,11 @@ mod imp {
             timestamp_box.append(&end_button);
 
             // Volume: mute toggle and a slider in a popover
-            self.volume_scale.set_hexpand(true);
+            // Vertical, rising from the sound button
+            self.volume_scale.set_orientation(gtk::Orientation::Vertical);
+            self.volume_scale.set_inverted(true);
+            self.volume_scale.set_size_request(-1, 140);
+            self.volume_scale.set_halign(gtk::Align::Center);
             self.volume_scale.set_range(0., 1.);
             self.volume_scale.set_increments(0.2, 0.2);
             self.volume_scale.set_value(VOLUME.get());
@@ -349,15 +353,12 @@ mod imp {
                 }
             ));
 
-            let volume_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            let volume_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
             volume_box.set_margin_top(6);
-            volume_box.set_margin_bottom(6);
-            volume_box.set_margin_start(6);
-            volume_box.set_margin_end(6);
-            volume_box.append(&self.mute_button);
+            volume_box.set_margin_bottom(2);
             volume_box.append(&self.volume_scale);
+            volume_box.append(&self.mute_button);
             let volume_popover = gtk::Popover::new();
-            volume_popover.set_width_request(250);
             volume_popover.set_child(Some(&volume_box));
             self.sound_button.set_icon_name("glance-volume-high-symbolic");
             self.sound_button.set_valign(gtk::Align::Center);
@@ -2240,6 +2241,7 @@ fn store_position(file: Option<&gio::File>, position: Option<f64>) {
 fn forget_position(file: Option<&gio::File>) {
     store_position(file, None);
 }
+
 
 
 /// Changes the state of `pipeline` on the worker thread, see `in_background`
