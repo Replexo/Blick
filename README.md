@@ -60,10 +60,6 @@ To build it yourself instead, see [Build from source](#build-from-source).
 
 Install Blick, start it once, and it takes over the files Glance opened. Remove Glance afterwards, for example with `flatpak uninstall io.github.Replexo.Glance` or your package manager.
 
-### Privacy and network access
-
-Blick only goes online to check GitHub for updates. Your photos and videos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blick`. Once Blick is on Flathub, which handles updates itself, the update check and the network access will be removed.
-
 ## Keyboard shortcuts
 
 | Key | Action |
@@ -108,6 +104,10 @@ To build a development version with its own app ID, so it can sit next to an ins
 meson setup builddir -Dprofile=dev -Dapp_id_suffix=.Devel
 ```
 
+
+### Privacy and network access
+
+Blick only goes online to check GitHub for updates. Your photos and videos never leave your computer, and there are no accounts or analytics. To keep the Flatpak offline, run `flatpak override --user --unshare=network io.github.Replexo.Blick`. Once Blick is on Flathub, which handles updates itself, the update check and the network access will be removed.
 
 ## Contributing
 
