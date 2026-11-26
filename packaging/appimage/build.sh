@@ -12,7 +12,7 @@ cd /src
 version=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
 arch=$(uname -m)
 
-pacman -Syu --noconfirm --needed wget librsvg gst-libav gst-plugins-bad-libs \
+pacman -Syu --noconfirm --needed wget patchelf binutils strace xorg-server-xvfb librsvg gst-libav gst-plugins-bad-libs \
     tesseract-data-spa tesseract-data-fra tesseract-data-deu tesseract-data-por \
     tesseract-data-rus tesseract-data-pol tesseract-data-tur
 pacman -U --noconfirm "$(ls /src/dist/blick-"$version"-*-"$arch".pkg.tar.zst | head -1)"
