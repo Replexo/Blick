@@ -4,7 +4,7 @@
 
 <div align="center">
 
-# Blick
+# Blick (previously Glance)
 
 **Image viewer, video player and photo editor for Linux**
 
