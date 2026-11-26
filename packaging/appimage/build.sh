@@ -17,6 +17,14 @@ pacman -Syu --noconfirm --needed wget patchelf binutils strace xorg-server-xvfb 
     tesseract-data-rus tesseract-data-pol tesseract-data-tur
 pacman -U --noconfirm "$(ls /src/dist/blick-"$version"-*-"$arch".pkg.tar.zst | head -1)"
 
+# Slimmed-down Mesa from the same project, after all other installs so
+# pacman does not replace it; full Mesa pulls in LLVM
+anylinux=aa92aa9f1b79435788fc075ddd783e796f80b530
+wget -q "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$anylinux/useful-tools/get-debloated-pkgs.sh" \
+    -O /tmp/get-debloated-pkgs.sh
+echo "d215f7676785f1a1bb8784e69085d66c1df81488ef31f1ba7198325a5be05130  /tmp/get-debloated-pkgs.sh" | sha256sum -c
+sh /tmp/get-debloated-pkgs.sh --add-mesa --prefer-nano
+
 work=/tmp/appimage
 rm -rf "$work"
 mkdir -p "$work"
@@ -27,8 +35,7 @@ rsvg-convert -w 256 -h 256 /usr/share/icons/hicolor/scalable/apps/io.github.Repl
     -o "$work/io.github.Replexo.Blick.png"
 
 # A fixed version, checked against its checksum
-quick_sharun=aa92aa9f1b79435788fc075ddd783e796f80b530
-wget -q "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$quick_sharun/useful-tools/quick-sharun.sh" \
+wget -q "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$anylinux/useful-tools/quick-sharun.sh" \
     -O quick-sharun
 echo "5dc2d685ffadefd4c17f5ab40da5432e99dd7b0fd85aa3dcee32aca331bcc126  quick-sharun" | sha256sum -c
 chmod +x quick-sharun
