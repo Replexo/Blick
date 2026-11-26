@@ -24,3 +24,6 @@ RUN mkdir -p /opt/linuxdeploy /opt/tessdata && cd /opt/linuxdeploy \
         curl -fsSL -o /opt/tessdata/$lang.traineddata \
             https://github.com/tesseract-ocr/tessdata_fast/raw/main/$lang.traineddata; \
     done
+# Renders the AppImage's PNG icon
+RUN apt-get update && apt-get install -y --no-install-recommends librsvg2-bin \
+    && rm -rf /var/lib/apt/lists/*

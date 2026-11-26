@@ -30,9 +30,18 @@ export DEPLOY_GTK_VERSION=4 OUTPUT="/src/dist/Blick-$version-$(uname -m).AppImag
 export APPIMAGE_EXTRACT_AND_RUN=1 LDAI_RUNTIME_FILE=/opt/linuxdeploy/runtime-x86_64 LDAI_UPDATE_INFORMATION="gh-releases-zsync|Replexo|Blick|latest|Blick-*$(uname -m).AppImage.zsync"
 mkdir -p /src/dist
 cd /opt/linuxdeploy
+# File managers and the AppImage catalog need a PNG icon as .DirIcon
+icon="$appdir/usr/share/icons/hicolor/256x256/apps/io.github.Replexo.Blick.png"
+mkdir -p "$(dirname "$icon")"
+rsvg-convert -w 256 -h 256 "$appdir/usr/share/icons/hicolor/scalable/apps/io.github.Replexo.Blick.svg" -o "$icon"
 ./linuxdeploy-x86_64.AppImage --appdir "$appdir" \
     --desktop-file "$appdir/usr/share/applications/io.github.Replexo.Blick.desktop" \
+    --icon-file "$icon" \
     --icon-file "$appdir/usr/share/icons/hicolor/scalable/apps/io.github.Replexo.Blick.svg" \
     --exclude-library 'libgst*' \
-    --plugin gtk --output appimage
+    --plugin gtk
+rm -f "$appdir/io.github.Replexo.Blick.svg" "$appdir/.DirIcon"
+cp "$icon" "$appdir/io.github.Replexo.Blick.png"
+cp "$icon" "$appdir/.DirIcon"
+./linuxdeploy-x86_64.AppImage --appdir "$appdir" --output appimage
 mv Blick*.zsync /src/dist/ 2>/dev/null || true
