@@ -26,8 +26,11 @@ cd "$work"
 rsvg-convert -w 256 -h 256 /usr/share/icons/hicolor/scalable/apps/io.github.Replexo.Blick.svg \
     -o "$work/io.github.Replexo.Blick.png"
 
-wget -q https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/heads/main/useful-tools/quick-sharun.sh \
+# A fixed version, checked against its checksum
+quick_sharun=aa92aa9f1b79435788fc075ddd783e796f80b530
+wget -q "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/$quick_sharun/useful-tools/quick-sharun.sh" \
     -O quick-sharun
+echo "5dc2d685ffadefd4c17f5ab40da5432e99dd7b0fd85aa3dcee32aca331bcc126  quick-sharun" | sha256sum -c
 chmod +x quick-sharun
 
 export ARCH="$arch"
