@@ -25,7 +25,7 @@ for target in $targets; do
     case $target in
         deb) in_image deb deb ;;
         rpm) in_image rpm rpm ;;
-        appimage) in_image deb appimage ;;
+        appimage) in_image arch appimage ;;
         arch) in_image arch arch ;;
         *) echo "Unknown target $target" >&2; exit 1 ;;
     esac
